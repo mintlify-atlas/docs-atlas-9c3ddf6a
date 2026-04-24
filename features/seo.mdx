@@ -1,0 +1,281 @@
+---
+title: "SEO: structured data, Open Graph, and sitemap"
+description: "How the portfolio implements JSON-LD structured data, Open Graph meta tags, a Supabase-powered dynamic sitemap, and robots.txt protecting API routes."
+---
+
+SEO is handled at three levels: structured data injected inline in the home page RSC, global `Metadata` in `app/layout.tsx`, and a dynamic `sitemap.xml` that automatically includes every blog post fetched from Supabase. No additional build steps or sitemap plugins are required.
+
+## JSON-LD structured data
+
+The home page (`app/page.tsx`) injects a `@graph`-style JSON-LD block using a `<script type="application/ld+json">` tag rendered by the React Server Component. Three schema types are included: `Person`, `WebSite`, and `WebPage`, all cross-linked by `@id`.
+
+<CodeGroup>
+```typescript app/page.tsx
+const structuredData = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Person",
+      "@id": `${portfolioContent.metadata.canonicalUrl}/#person`,
+      name: portfolioContent.metadata.personStructuredData.name,
+      jobTitle: "AI Systems & Full-Stack Builder",
+      description: portfolioContent.metadata.description,
+      url: portfolioContent.metadata.canonicalUrl,
+      image: `${portfolioContent.metadata.canonicalUrl}/hero_image.png`,
+      sameAs: portfolioContent.metadata.personStructuredData.sameAsLinks,
+      knowsAbout: [
+        "Artificial Intelligence",
+        "Machine Learning",
+        "Full-Stack Development",
+        "Next.js",
+        "React",
+        "TypeScript",
+        "Product Design",
+      ],
+    },
+    {
+      "@type": "WebSite",
+      "@id": `${portfolioContent.metadata.canonicalUrl}/#website`,
+      name: portfolioContent.metadata.title,
+      url: portfolioContent.metadata.canonicalUrl,
+      description: portfolioContent.metadata.description,
+      publisher: {
+        "@id": `${portfolioContent.metadata.canonicalUrl}/#person`,
+      },
+      inLanguage: "en-US",
+    },
+    {
+      "@type": "WebPage",
+      "@id": `${portfolioContent.metadata.canonicalUrl}/#webpage`,
+      url: portfolioContent.metadata.canonicalUrl,
+      name: `${portfolioContent.metadata.personStructuredData.name} — AI Systems & Full-Stack Builder`,
+      isPartOf: {
+        "@id": `${portfolioContent.metadata.canonicalUrl}/#website`,
+      },
+      about: {
+        "@id": `${portfolioContent.metadata.canonicalUrl}/#person`,
+      },
+      description: portfolioContent.metadata.description,
+      inLanguage: "en-US",
+    },
+  ],
+};
+```
+</CodeGroup>
+
+<AccordionGroup>
+  <Accordion title="Person schema">
+    The `Person` node includes `name`, `jobTitle`, `description`, `url`, `image` (absolute URL to `/hero_image.png`), `sameAs` (array of profile links from `personStructuredData.sameAsLinks`), and `knowsAbout` (a curated list of technology domains). The `@id` URI fragment `/#person` allows the `WebSite` and `WebPage` nodes to reference this entity without duplicating its data.
+  </Accordion>
+  <Accordion title="WebSite schema">
+    The `WebSite` node includes `name`, `url`, `description`, and `publisher` pointing to `/#person`. `inLanguage: "en-US"` is set explicitly. This node enables Google Sitelinks Search Box if a `SearchAction` is later added.
+  </Accordion>
+  <Accordion title="WebPage schema">
+    The `WebPage` node captures the current page URL, its human-readable name, `isPartOf` (the website), `about` (the person entity), and `description`. This is what search engines use to populate rich result previews.
+  </Accordion>
+</AccordionGroup>
+
+The script tag uses `suppressHydrationWarning` and `dangerouslySetInnerHTML` to avoid React hydration mismatches caused by JSON serialization differences:
+
+```tsx
+<script
+  type="application/ld+json"
+  suppressHydrationWarning
+  dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+/>
+```
+
+## Open Graph and Twitter metadata
+
+Global metadata is defined in `app/layout.tsx` using Next.js's `Metadata` type. All values derive from `content-data/site-metadata.json` and `lib/site.ts`:
+
+<CodeGroup>
+```typescript app/layout.tsx
+export const metadata: Metadata = {
+  metadataBase: new URL(CANONICAL),
+  title: {
+    default: homePageTitle,
+    template: `%s | ${siteName}`,
+  },
+  description: siteDescription,
+  keywords: siteMetadata.content.keywords,
+  authors: [{ name: "Shreyas J", url: CANONICAL }],
+  creator: "Shreyas J",
+  publisher: "Shreyas J",
+  alternates: {
+    canonical: "/",
+  },
+  icons: {
+    icon: [{ url: "/icon.ico", sizes: "any" }],
+    shortcut: "/icon.ico",
+    apple: "/logo.png",
+  },
+  openGraph: {
+    title: homePageTitle,
+    description: siteDescription,
+    url: CANONICAL,
+    siteName,
+    locale: "en_US",
+    type: "website",
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Shreyas J — AI Systems & Full-Stack Builder",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: homePageTitle,
+    description: siteDescription,
+    creator: "@KidzeeSmart",
+    images: [
+      {
+        url: "/og-image.jpg",
+        width: 1200,
+        height: 630,
+        alt: "Shreyas J — AI Systems & Full-Stack Builder",
+      },
+    ],
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-video-preview": -1,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+};
+```
+</CodeGroup>
+
+<Tabs>
+  <Tab title="Title template">
+    The `template: "%s | {siteName}"` pattern means inner pages only need to export their own short title from their `generateMetadata` function — the site name is appended automatically. The home page uses `default: homePageTitle` which skips the template.
+  </Tab>
+  <Tab title="OG image">
+    The OG image is `/og-image.jpg` (1200×630px), served from the `public/` directory. `metadataBase` is set to `CANONICAL` so relative paths like `/og-image.jpg` are resolved to fully qualified URLs in the rendered `<meta>` tags.
+  </Tab>
+  <Tab title="Robots">
+    `index: true, follow: true` with expanded Googlebot directives: `max-video-preview: -1` (unlimited), `max-image-preview: "large"`, and `max-snippet: -1` (unlimited). These allow Google to show rich image previews and full snippets in search results.
+  </Tab>
+  <Tab title="Analytics">
+    Three analytics scripts are included in the layout: Umami (privacy-friendly, loaded with `strategy="afterInteractive"`), Vercel Analytics (`<Analytics />`), and Vercel Speed Insights (`<SpeedInsights />`). None of these block rendering.
+  </Tab>
+</Tabs>
+
+## Dynamic sitemap
+
+`app/sitemap.ts` exports a Next.js `sitemap()` function that combines static pages with dynamically generated blog post entries fetched from Supabase:
+
+<CodeGroup>
+```typescript app/sitemap.ts
+import type { MetadataRoute } from "next";
+import { getAllBlogs } from "@/lib/blogs";
+
+const BASE_URL = "https://www.shreyas.cloud";
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
+  const staticPages: MetadataRoute.Sitemap = [
+    {
+      url: BASE_URL,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 1.0,
+    },
+    {
+      url: `${BASE_URL}/blogs`,
+      lastModified: new Date(),
+      changeFrequency: "weekly",
+      priority: 0.8,
+    },
+    {
+      url: `${BASE_URL}/privacy`,
+      lastModified: new Date("2026-04-22"),
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+    {
+      url: `${BASE_URL}/terms`,
+      lastModified: new Date("2026-04-22"),
+      changeFrequency: "yearly",
+      priority: 0.3,
+    },
+  ];
+
+  let blogPages: MetadataRoute.Sitemap = [];
+
+  try {
+    const posts = await getAllBlogs();
+    blogPages = posts.map((post) => ({
+      url: `${BASE_URL}/blogs/${post.id}`,
+      lastModified: new Date(post.updated_at),
+      changeFrequency: "monthly" as const,
+      priority: 0.6,
+    }));
+  } catch {
+    // Supabase unavailable — skip dynamic blog entries
+  }
+
+  return [...staticPages, ...blogPages];
+}
+```
+</CodeGroup>
+
+Priority values follow a clear hierarchy: home page (`1.0`) → blogs index (`0.8`) → individual blog posts (`0.6`) → legal pages (`0.3`). Blog posts use `updated_at` as their `lastModified` date so search engines re-crawl posts when their content changes.
+
+<Note>
+  If Supabase is unavailable when the sitemap is requested, the `try/catch` silently skips the dynamic blog entries. The sitemap still returns successfully with the four static pages, preventing a sitemap fetch error from propagating to search engine crawlers.
+</Note>
+
+## robots.txt
+
+`app/robots.ts` generates a `robots.txt` that allows all user agents to crawl everything except the `/api/` path:
+
+<CodeGroup>
+```typescript app/robots.ts
+import type { MetadataRoute } from "next";
+
+const BASE_URL = "https://www.shreyas.cloud";
+
+export default function robots(): MetadataRoute.Robots {
+  return {
+    rules: [
+      {
+        userAgent: "*",
+        allow: "/",
+        disallow: ["/api/"],
+      },
+    ],
+    sitemap: `${BASE_URL}/sitemap.xml`,
+  };
+}
+```
+</CodeGroup>
+
+The `sitemap` field adds a `Sitemap:` directive at the end of the generated `robots.txt`, which makes it easier for search engines to discover the sitemap without relying solely on Google Search Console submission.
+
+## Canonical URLs
+
+The `alternates.canonical: "/"` in `layout.tsx` sets the canonical URL for the home page to `CANONICAL + "/"`. Inner pages (blog posts, `/blogs`) should export their own canonical via `generateMetadata` to prevent duplicate content issues between `www` and non-`www` variants.
+
+<CardGroup cols={2}>
+  <Card title="JSON-LD" icon="code">
+    Three schema.org types in a `@graph`: `Person`, `WebSite`, `WebPage`. Cross-linked by `@id` URI fragments. Injected inline in the RSC for zero client-side JavaScript overhead.
+  </Card>
+  <Card title="Open Graph" icon="share-nodes">
+    1200×630px OG image, `en_US` locale, `website` type. Twitter card uses `summary_large_image` with `@KidzeeSmart` creator tag.
+  </Card>
+  <Card title="Sitemap" icon="sitemap">
+    Dynamic `sitemap.xml` via Next.js `sitemap()`. Static pages hardcoded; blog posts fetched from Supabase at request time. Graceful degradation on Supabase failure.
+  </Card>
+  <Card title="robots.txt" icon="robot">
+    All agents allowed on `/`. API routes blocked with `Disallow: /api/`. Sitemap URL declared inline for crawler discovery.
+  </Card>
+</CardGroup>

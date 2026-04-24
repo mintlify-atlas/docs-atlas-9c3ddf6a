@@ -1,0 +1,225 @@
+---
+title: "AI blog reading assistant with OpenRouter"
+description: "How the per-post AI assistant generates structured summaries, handles contextual chat, caches by content hash, and falls back across model providers."
+---
+
+Each blog post has a floating AI assistant that generates a structured summary on first open, then accepts contextual follow-up questions. The assistant is aware of the post's content through a preprocessed, stripped version of the markdown fed into the prompt — not through RAG or embeddings. Everything is routed through [OpenRouter](https://openrouter.ai), which gives model fallback and provider routing without managing separate API keys per vendor.
+
+## Core types
+
+Three types from `lib/blog-ai.ts` define the shape of every AI interaction:
+
+<CodeGroup>
+```typescript lib/blog-ai.ts
+export type BlogAiMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type BlogAiSummary = {
+  headline: string;
+  keyPoints: string[];
+  quickSummary: string;
+  takeaway: string;
+  suggestedPrompts: string[];
+  generatedAt: string;
+  model: string;
+  contentSignature: string;
+};
+
+export type BlogAiChatResponse = {
+  message: string;
+  suggestedReplies: string[];
+  generatedAt: string;
+  model: string;
+};
+```
+</CodeGroup>
+
+The `BlogAiSummary.contentSignature` field is a 16-character SHA-256 hash of the post's `id`, `title`, `updatedAt`, and `content`. It is stored alongside the cached summary in both `localStorage` and the Next.js data cache. If the post content changes, the signature changes, and the old cache entry is discarded.
+
+## Content signature hashing
+
+<CodeGroup>
+```typescript lib/blog-ai.ts
+import { createHash } from "node:crypto";
+
+export function buildBlogContentSignature(input: {
+  id: string;
+  title: string;
+  content: string;
+  updatedAt?: string | null;
+}) {
+  return createHash("sha256")
+    .update(`${input.id}::${input.title}::${input.updatedAt ?? ""}::${input.content}`)
+    .digest("hex")
+    .slice(0, 16);
+}
+```
+</CodeGroup>
+
+The 16-character truncation keeps the cache key short enough for `localStorage` keys while still providing more than enough collision resistance for this use case.
+
+## Content preprocessing
+
+Raw blog markdown is never sent to the model. `stripBlogContentForAi` removes code blocks, image grids, markdown images, HTML tags, markdown formatting characters, and internal links before truncating to a configurable maximum length (default `12000` characters):
+
+<CodeGroup>
+```typescript lib/blog-ai.ts
+export function stripBlogContentForAi(content: string, maxLength = 12000) {
+  return content
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/<BlogTable[\s\S]*?\/>/g, " ")
+    .replace(/<div\s+class=["']blog-image-grid["'][\s\S]*?<\/div>/gi, " ")
+    .replace(/\!\[[^\]]*\]\([^)]+\)/g, " ")
+    .replace(/<img[^>]*>/gi, " ")
+    .replace(/<a\s+[^>]*href=["'][^"']+["'][^>]*>(.*?)<\/a>/gi, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[*_`>#|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+```
+</CodeGroup>
+
+Chat replies use a shorter `9000`-character limit since the summary context is also included in the prompt.
+
+## OpenRouter model configuration
+
+The model is read from environment variables at runtime. `OPENROUTER_MODELS` (comma-separated) takes precedence over `OPENROUTER_MODEL` (single model). If neither is set, the route falls back to `meta-llama/llama-3.3-8b-instruct:free`.
+
+<CodeGroup>
+```typescript app/api/blogs/[id]/ai/route.ts
+const DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.3-8b-instruct:free";
+
+function getOpenRouterModels() {
+  const configuredModels =
+    process.env.OPENROUTER_MODELS?.trim() ||
+    process.env.OPENROUTER_MODEL?.trim() ||
+    DEFAULT_OPENROUTER_MODEL;
+
+  const models = configuredModels
+    .split(",")
+    .map((model) => model.trim())
+    .filter(Boolean);
+
+  return [...new Set(models)];
+}
+```
+</CodeGroup>
+
+When multiple models are provided, they are passed to OpenRouter as a `models` array (OpenRouter's fallback routing). When only one model is specified, the `model` key is used instead. This distinction matters — OpenRouter handles the fallback automatically when given an array.
+
+<Note>
+  Free models on OpenRouter (suffixed with `:free`) are rate-limited by the upstream provider, not by OpenRouter itself. When a provider is at capacity, the route returns HTTP 503. The error message explicitly tells you to try again or switch models: `"OpenRouter could not reach the current provider for {models}. Try again in a moment, or switch to a different model in OPENROUTER_MODEL/OPENROUTER_MODELS. Free models often return 503 when provider capacity is exhausted."`
+</Note>
+
+## Summary generation and caching
+
+Summaries are generated server-side by `POST /api/blogs/:id/ai` with `mode: "summary"`. The route uses Next.js `unstable_cache` with a 14-day revalidation window:
+
+<CodeGroup>
+```typescript app/api/blogs/[id]/ai/route.ts
+const SUMMARY_CACHE_REVALIDATE_SECONDS = 60 * 60 * 24 * 14;
+
+const getCachedSummary = unstable_cache(
+  async (blogId: string, contentSignature: string) => {
+    const summary = await generateFreshSummary(blogId);
+
+    if (summary.contentSignature !== contentSignature) {
+      return generateFreshSummary(blogId);
+    }
+
+    return summary;
+  },
+  ["blog-ai-summary"],
+  { revalidate: SUMMARY_CACHE_REVALIDATE_SECONDS },
+);
+```
+</CodeGroup>
+
+The summary prompt instructs the model to return a strict JSON shape:
+
+```json
+{
+  "headline": "short premium heading",
+  "keyPoints": ["point 1", "point 2", "point 3"],
+  "quickSummary": "2-4 sentence summary",
+  "takeaway": "1-2 sentence takeaway",
+  "suggestedPrompts": ["prompt 1", "prompt 2", "prompt 3", "prompt 4"]
+}
+```
+
+`extractJsonObject` handles the case where the model wraps its JSON in markdown fences by finding the first `{` and last `}` in the raw response.
+
+The client also caches the summary in `localStorage` under the key `blog-ai-summary:v1:{blogId}:{contentSignature}`. On subsequent visits the cache is checked first — if the stored `contentSignature` matches the current one, the network request is skipped entirely.
+
+## Chat mode
+
+Chat requests send the last 8 messages of conversation history plus the blog's summary context to a second prompt:
+
+<CodeGroup>
+```typescript app/api/blogs/[id]/ai/route.ts
+const recentMessages = messages
+  .filter((m) => m.role === "user" || m.role === "assistant")
+  .slice(-8)
+  .map((m) => `${m.role.toUpperCase()}: ${m.content}`)
+  .join("\n");
+```
+</CodeGroup>
+
+The chat prompt instructs the model to return `{ message, suggestedReplies }` and keep responses under 140 words. `maxTokens` is set to `450` for chat vs. `700` for summary generation.
+
+## Default prompt suggestions
+
+Four built-in prompts are always available as a fallback when the model has not yet generated post-specific suggestions:
+
+<CodeGroup>
+```typescript lib/blog-ai.ts
+const DEFAULT_PROMPTS = [
+  "Explain this blog in simple words.",
+  "What are the main takeaways?",
+  "Give me the fastest recap.",
+  "Why does this matter?",
+];
+```
+</CodeGroup>
+
+`normalizePromptSuggestions` deduplicates suggestions case-insensitively and merges model-generated ones with the defaults, keeping the top 4.
+
+## UI surface: desktop popup and mobile panel
+
+The `BlogAiAssistant` component (`components/blog-ai-assistant.tsx`) renders two separate surfaces for the same conversation state:
+
+<Tabs>
+  <Tab title="Desktop (≥768px)">
+    A fixed bottom-right floating button opens a `430px`-wide popup panel (`h: min(76vh, 760px)`). The panel slides up with a Framer Motion opacity/transform transition (`duration: 300ms, ease: ease-out`). It includes a scrollable conversation area, summary cards, quick prompt chips, a textarea composer, and a Refresh button that forces a new summary.
+  </Tab>
+  <Tab title="Mobile (<768px)">
+    An inline section below the blog post body expands a panel using CSS `max-height` transitions. The mobile surface is hidden when the panel is open (`aria-hidden`, `inert`) and the panel is hidden when the surface is shown. There is no floating button on mobile.
+  </Tab>
+</Tabs>
+
+<AccordionGroup>
+  <Accordion title="Typing animation">
+    The `TypingText` component renders a character-by-character reveal at `speed` ms per character (default 12ms, 10ms for chat bubbles, 14ms for the takeaway field). A blinking `blog-ai-caret` pseudo-element shows while text is still animating. `onProgress` fires after every character to scroll the conversation to the bottom.
+  </Accordion>
+  <Accordion title="Auto-open on summary generation">
+    On desktop, when `generateSummary()` completes successfully, `setIsDesktopPopupOpen(true)` is called automatically so the user sees the result without needing to click again.
+  </Accordion>
+  <Accordion title="Error display">
+    Errors from both summary and chat requests are shown inline in a red-tinted rounded box. On a failed chat message, the user's message is removed from the conversation history so they can retry cleanly.
+  </Accordion>
+</AccordionGroup>
+
+## Required environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `OPENROUTER_API_KEY` | Yes | OpenRouter API key |
+| `OPENROUTER_MODEL` | No | Single model ID (default: `meta-llama/llama-3.3-8b-instruct:free`) |
+| `OPENROUTER_MODELS` | No | Comma-separated model list for fallback routing |
+| `OPENROUTER_APP_NAME` | No | App title sent in OpenRouter headers (default: `"Shreyas Portfolio"`) |
+| `NEXT_PUBLIC_SITE_URL` | No | Used as `httpReferer` in OpenRouter requests |

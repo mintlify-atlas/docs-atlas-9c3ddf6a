@@ -1,0 +1,120 @@
+---
+title: "Shreyas Portfolio v2: What's inside"
+description: "A cinematic Next.js 16 personal portfolio featuring GSAP animations, Framer Motion, Supabase-backed blog, and an OpenRouter AI reading assistant."
+---
+
+**Shreyas Portfolio v2** is a single-page dark-themed portfolio built to showcase AI-first thinking and full-stack engineering craft. It combines a cinematic HLS video hero, real-time WebGL shader effects, a Supabase-backed blog with an AI reading companion, and scroll-driven GSAP animations — all running on Next.js 16 with React 19 and Tailwind CSS 4. Every section is intentional: transitions tell a story, interactions have weight, and the underlying code is structured to scale.
+
+## Tech stack
+
+The portfolio is built on a modern, production-grade stack:
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| UI library | React 19 |
+| Language | TypeScript 6 |
+| Styling | Tailwind CSS 4 |
+| Animation | GSAP 3 + Framer Motion 12 |
+| Shaders | WebGL via `@paper-design/shaders-react` |
+| Video | HLS.js |
+| Database | Supabase |
+| AI | OpenRouter (`@openrouter/sdk`) |
+| Email | Nodemailer 8 + Web3Forms |
+| Fonts | Geist + Inter + Instrument Serif |
+| Analytics | Vercel Analytics + Vercel Speed Insights + Umami |
+| Hosting | Vercel |
+
+## Key features
+
+<AccordionGroup>
+  <Accordion title="Cinematic hero with HLS video background">
+    The hero section streams an adaptive-bitrate HLS video background using HLS.js. GSAP powers the reveal animation on page load, and the headline cycles through three roles defined in `lib/content.ts` using a typewriter effect:
+
+    ```typescript lib/content.ts
+    roles: [
+      "Student, Content Creator & Builder",
+      "Upcoming Agentic Engineer & Full Stack Developer",
+      "Building AI Systems & Scalable Web Apps",
+    ],
+    ```
+  </Accordion>
+
+  <Accordion title="Liquid metal WebGL buttons">
+    Interactive buttons use real-time WebGL shaders via `@paper-design/shaders-react` to produce metallic distortion and reflections. These are self-contained components under `components/ui/liquid-metal/` and require no GPU configuration from the user.
+  </Accordion>
+
+  <Accordion title="Supabase blog with like system">
+    Blog posts are stored in Supabase and rendered via dynamic routes under `app/blogs/`. Each post supports a particle-burst like animation backed by a Supabase counter, social sharing, and an AI reading assistant powered by OpenRouter.
+  </Accordion>
+
+  <Accordion title="AI blog reading assistant">
+    Every blog post includes an AI-powered companion built on the OpenRouter SDK. It summarizes posts, answers reader questions, and falls back gracefully across a comma-separated model list when upstream providers return 503s. Configured via `OPENROUTER_API_KEY` and `OPENROUTER_MODEL`.
+  </Accordion>
+
+  <Accordion title="Scroll-driven sticky timeline">
+    The growth timeline at `components/ui/timeline/` uses GSAP ScrollTrigger to pin section headers while phase cards animate in. All timeline content is authored in `content-data/timeline.json` — no code changes needed to add entries.
+  </Accordion>
+
+  <Accordion title="Interactive skill radar">
+    The skills section renders a category-based radar visualization with animated progress indicators. Skills are defined in `content-data/skills.json` and grouped by category, making them easy to update without touching component code.
+  </Accordion>
+
+  <Accordion title="Dual contact delivery with honeypot protection">
+    The contact form sends messages via both Nodemailer (SMTP) and Web3Forms as a backup. A honeypot field is included to reject bot submissions without CAPTCHA friction. Email validation uses Hunter API.
+  </Accordion>
+
+  <Accordion title="Retro 404 arcade page">
+    The 404 route renders a playable retro arcade-style game so visitors who land on missing pages have something to do. No external dependencies — pure React and canvas.
+  </Accordion>
+</AccordionGroup>
+
+## Project structure
+
+```text
+new_portfoliov2/
+├── app/
+│   ├── api/              # Server endpoints (contact, blog APIs)
+│   ├── blogs/            # Dynamic blog routes
+│   ├── globals.css       # Design system and global styles
+│   ├── layout.tsx        # Root layout with fonts and analytics
+│   ├── page.tsx          # Home page with structured data
+│   ├── sitemap.ts        # Dynamic sitemap generation
+│   └── robots.ts         # Robots.txt configuration
+├── components/
+│   ├── ui/               # Reusable UI primitives
+│   │   ├── liquid-metal  # WebGL shader button components
+│   │   ├── timeline      # Scroll-driven timeline
+│   │   └── warp-bg       # Perspective beam grid
+│   ├── portfolio-shell   # Main single-page layout
+│   ├── skills-showcase   # Interactive skill radar section
+│   └── blog-ai-assistant # AI-powered reading companion
+├── content-data/         # JSON content layer
+│   ├── projects.json     # Featured work entries
+│   ├── skills.json       # Skill categories and progress
+│   ├── timeline.json     # Growth timeline entries
+│   └── site-metadata.json
+├── lib/
+│   ├── content.ts        # Portfolio content aggregator
+│   ├── site.ts           # Site name, title, description constants
+│   └── utils.ts
+├── public/               # Static assets (logo, OG image, hero video)
+└── supabase/             # Database schema and client config
+```
+
+## Where to go next
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Clone the repo, install dependencies, configure environment variables, and run the dev server in six steps.
+  </Card>
+  <Card title="Environment setup" icon="key" href="/environment-setup">
+    Full reference for every environment variable — Supabase, OpenRouter, SMTP, and contact form keys.
+  </Card>
+  <Card title="Hero animations" icon="film" href="/features/hero-animations">
+    How the HLS video background, GSAP reveal, and role-cycling typewriter effect work together.
+  </Card>
+  <Card title="Blog system" icon="book-open" href="/features/blog-system">
+    Supabase schema, dynamic routes, like system, and the OpenRouter AI reading assistant.
+  </Card>
+</CardGroup>

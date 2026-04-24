@@ -1,0 +1,308 @@
+---
+title: "Hero section: HLS video and GSAP animations"
+description: "How the cinematic hero works: HLS adaptive-bitrate video via hls.js, GSAP reveal sequence, Framer Motion role-cycling text, and loader handoff."
+---
+
+The hero section combines three independent animation systems — a reveal loader, a GSAP timeline, and Framer Motion — that must hand off control to each other in exactly the right order. Getting that sequencing wrong shows as a flash of unstyled content or a frame-rate drop during the most visible moment of the page load. The sections below document every piece.
+
+## HLS video background
+
+The cinematic background is an `.m3u8` HLS stream served through [Mux](https://www.mux.com). The `HlsVideo` component wraps `hls.js` to deliver adaptive-bitrate streaming in all browsers that support Media Source Extensions, and falls back to native HLS for Safari.
+
+<CodeGroup>
+```tsx components/hls-video.tsx
+"use client";
+
+import Hls from "hls.js";
+import { useEffect, useRef, useState } from "react";
+
+type HlsVideoProps = {
+  className?: string;
+  flipped?: boolean;
+};
+
+const videoSource =
+  "https://stream.mux.com/Aa02T7oM1wH5Mk5EEVDYhbZ1ChcdhRsS2m1NYyx4Ua1g.m3u8";
+
+export function HlsVideo({ className, flipped = false }: HlsVideoProps) {
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [shouldLoadVideo, setShouldLoadVideo] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setShouldLoadVideo(!mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
+
+  useEffect(() => {
+    setIsReady(false);
+
+    if (!shouldLoadVideo) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    let hls: Hls | null = null;
+    const markReady = () => setIsReady(true);
+
+    video.addEventListener("loadeddata", markReady);
+    video.addEventListener("canplay", markReady);
+
+    if (Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hls.loadSource(videoSource);
+      hls.attachMedia(video);
+    } else if (video.canPlayType("application/vnd.apple.mpegurl")) {
+      video.src = videoSource;
+    }
+
+    void video.play().catch(() => undefined);
+
+    return () => {
+      video.pause();
+      video.removeEventListener("loadeddata", markReady);
+      video.removeEventListener("canplay", markReady);
+      hls?.destroy();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [shouldLoadVideo]);
+
+  if (!shouldLoadVideo) {
+    return <div className={className} aria-hidden="true" />;
+  }
+
+  return (
+    <video
+      ref={videoRef}
+      className={`transition-opacity duration-700 ${isReady ? "opacity-100" : "opacity-0"}`}
+      autoPlay
+      muted
+      loop
+      playsInline
+      preload="auto"
+      aria-hidden="true"
+    />
+  );
+}
+```
+</CodeGroup>
+
+<AccordionGroup>
+  <Accordion title="Accessibility: prefers-reduced-motion">
+    Before any HLS source is loaded, the component checks `window.matchMedia("(prefers-reduced-motion: reduce)")`. When the user has requested reduced motion, `shouldLoadVideo` stays `false` and the component renders an empty `<div>` instead of a video element. The media query listener keeps this in sync if the user changes the OS setting at runtime.
+  </Accordion>
+  <Accordion title="Browser compatibility">
+    `Hls.isSupported()` checks for MSE support. Modern Chrome, Firefox, and Edge all pass. Safari natively handles `application/vnd.apple.mpegurl`, so it falls through to the `video.src` path. The `hls.js` instance is configured with `enableWorker: true` to offload segment decoding to a Web Worker and `lowLatencyMode: true` for faster initial playback.
+  </Accordion>
+  <Accordion title="Fade-in on load">
+    The video starts with `opacity-0` and transitions to `opacity-100` only after the `loadeddata` or `canplay` event fires. This hides the FOUC that occurs between the element mounting and the first decoded frame appearing.
+  </Accordion>
+</AccordionGroup>
+
+## Reveal loader
+
+`HomePageLoaderShell` is the top-level orchestrator. It decides whether to show the `RevealLoader` animation and when to mount the heavy `PortfolioShell` beneath it.
+
+<CodeGroup>
+```tsx components/home-page-loader-shell.tsx
+"use client";
+
+import { useEffect, useLayoutEffect, useState } from "react";
+import RevealLoader from "@/components/ui/reveal-loader";
+import { PortfolioShell } from "@/components/portfolio-shell";
+
+const shouldPlayHomeLoader = () => {
+  if (typeof window === "undefined" || window.__homeLoaderHandled) {
+    return false;
+  }
+
+  if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    return false;
+  }
+
+  const navigationEntry = performance.getEntriesByType("navigation")[0] as
+    | PerformanceNavigationTiming
+    | undefined;
+  const navigationType = navigationEntry?.type;
+  const isInitialHomeDocument = getInitialPathname() === "/";
+  const isFreshHomeVisit =
+    navigationType === "navigate" || navigationType === "reload";
+
+  if (!isInitialHomeDocument || !isFreshHomeVisit) {
+    return false;
+  }
+
+  window.__homeLoaderHandled = true;
+  return true;
+};
+
+export function HomePageLoaderShell({ content, latestPosts, skillCategories }) {
+  const [showLoader, setShowLoader] = useState(true);
+  const [mountShell, setMountShell] = useState(false);
+  const [wasLoaderPlayed, setWasLoaderPlayed] = useState(false);
+
+  useIsomorphicLayoutEffect(() => {
+    if (!shouldPlayHomeLoader()) {
+      setShowLoader(false);
+      setMountShell(true);
+    } else {
+      setWasLoaderPlayed(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!showLoader) {
+      setMountShell(true);
+      return;
+    }
+
+    // Mount the heavy PortfolioShell at 1200ms — text finishes at ~1140ms,
+    // bars start sliding at 1640ms. This hides mount lag in the dead zone.
+    const timer = setTimeout(() => setMountShell(true), 1200);
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      clearTimeout(timer);
+      document.body.style.overflow = "";
+    };
+  }, [showLoader]);
+
+  return (
+    <div className="relative min-h-screen bg-bg">
+      <div aria-hidden={showLoader}>
+        {mountShell ? (
+          <PortfolioShell
+            content={content}
+            latestPosts={latestPosts}
+            skillCategories={skillCategories}
+            isInitialLoad={wasLoaderPlayed}
+          />
+        ) : null}
+      </div>
+
+      {showLoader ? (
+        <RevealLoader
+          text="SHREYAS"
+          textSize="clamp(3rem, 14vw, 8rem)"
+          textColor="#f8fafc"
+          bgColors={["#02040a", "#0b1421", "#05070d"]}
+          angle={135}
+          staggerOrder="edges-in"
+          movementDirection="bottom-up"
+          textFadeDelay={0.2}
+          className="fixed inset-0 z-[200] h-dvh w-screen"
+          onComplete={() => setShowLoader(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+```
+</CodeGroup>
+
+<Tip>
+  `window.__homeLoaderHandled` is set to `true` after the loader first runs. This prevents the loader from replaying on client-side navigations back to `/` — it only plays on fresh page loads (`navigate` or `reload` navigation types).
+</Tip>
+
+## Animation sequence
+
+The full timeline from navigation to interactive hero:
+
+<Steps>
+  <Step title="Navigation entry detected">
+    `shouldPlayHomeLoader()` reads `PerformanceNavigationTiming.type`. If the entry is `navigate` or `reload` and the path is `/`, the loader is queued. Any other navigation type (e.g., `back_forward`) skips directly to the shell.
+  </Step>
+  <Step title="RevealLoader plays (0 – ~1640ms)">
+    The `RevealLoader` component displays the text "SHREYAS" with a `staggerOrder="edges-in"` GSAP text stagger. `document.body.style.overflow = "hidden"` prevents scroll during this phase. The `PortfolioShell` is mounted in the background at exactly `1200ms` — after the text animation ends (~1140ms) but before the bar-slide outro begins (~1640ms), hiding the React mount cost in the dead zone.
+  </Step>
+  <Step title="Loader completes, hero reveals">
+    `onComplete` fires, setting `showLoader = false`. `PortfolioShell` becomes interactive (`aria-hidden` removed, `pointer-events` restored). The GSAP hero timeline starts with a `delayOffset` of `1.4s` when `isInitialLoad` is `true`, so it starts precisely as the last loader bar finishes sliding.
+  </Step>
+  <Step title="GSAP hero timeline runs">
+    The timeline animates `.name-reveal` (opacity 0→1, y 50→0, duration 1.2s) and `.blur-in` elements (opacity 0→1, blur 10px→0, stagger 0.1s). When the loader was skipped, `delayOffset` is `0.1s` so the animation starts almost immediately.
+  </Step>
+  <Step title="Framer Motion role text cycles">
+    An `setInterval` at 2600ms advances `roleIndex`, cycling through all roles in `content.roles`. Each role transition uses Framer Motion's `AnimatePresence` with `mode="wait"` — the exiting role blurs and slides up while the entering role blurs in from below (duration 0.38s).
+  </Step>
+  <Step title="Scroll-driven effects begin">
+    Once the hero is interactive, a passive `scroll` event listener tracks section offsets, updates `activeSection` for the navigation pill, and shows/hides the floating header based on scroll direction (hide when scrolling down past 118px on mobile / 148px on desktop, reveal on upward scroll delta > 8px).
+  </Step>
+</Steps>
+
+## GSAP hero timeline
+
+The hero reveal runs inside a `gsap.context()` scoped to `rootRef` for safe cleanup on unmount:
+
+<CodeGroup>
+```tsx components/portfolio-shell.tsx (lines 310–331)
+useEffect(() => {
+  // Delay if the loader was played to avoid competing with the outro bars.
+  const delayOffset = isInitialLoad ? 1.4 : 0.1;
+
+  const context = gsap.context(() => {
+    gsap.timeline({ defaults: { ease: "power3.out" } })
+      .fromTo(
+        ".name-reveal",
+        { opacity: 0, y: 50 },
+        { opacity: 1, y: 0, duration: 1.2, delay: delayOffset },
+      )
+      .fromTo(
+        ".blur-in",
+        { opacity: 0, filter: "blur(10px)", y: 20 },
+        { opacity: 1, filter: "blur(0px)", y: 0, duration: 1, stagger: 0.1, delay: delayOffset + 0.2 },
+        0,
+      );
+  }, rootRef);
+
+  return () => context.revert();
+}, [isInitialLoad]);
+```
+</CodeGroup>
+
+<Note>
+  The `blur()` CSS filter is GPU-accelerated on Chrome and Safari but can stall compositing on lower-end hardware. The delay offset is intentionally timed so the blur animations only start after the loader bars have finished, preventing the two effects from competing for GPU bandwidth at the same time.
+</Note>
+
+## Framer Motion header
+
+The floating navigation header uses a Framer Motion spring animation to slide in and out based on scroll direction:
+
+<CodeGroup>
+```tsx components/portfolio-shell.tsx (header motion)
+<motion.header
+  initial={false}
+  animate={{
+    y: headerShown ? 0 : -112,
+    opacity: headerShown ? 1 : 0.88,
+    scale: headerShown ? 1 : 0.985,
+  }}
+  transition={{
+    type: "spring",
+    stiffness: 260,
+    damping: 28,
+    mass: 0.92,
+  }}
+>
+```
+</CodeGroup>
+
+<CardGroup cols={2}>
+  <Card title="HLS video" icon="film">
+    Adaptive bitrate via hls.js with `enableWorker` and `lowLatencyMode`. Falls back to native HLS for Safari. Respects `prefers-reduced-motion`.
+  </Card>
+  <Card title="RevealLoader" icon="sparkles">
+    GSAP text stagger (`staggerOrder="edges-in"`) followed by a bottom-up bar slide outro. `z-index: 200` ensures it sits above everything.
+  </Card>
+  <Card title="GSAP hero" icon="wand-magic-sparkles">
+    `power3.out` easing on name reveal (y: 50→0) and blur-in stagger for all secondary elements. Scoped with `gsap.context()` for SSR safety.
+  </Card>
+  <Card title="Framer Motion" icon="arrows-up-down">
+    Spring-based header show/hide, role-cycling `AnimatePresence`, and `whileInView` fade-ups on stat cards and section headings.
+  </Card>
+</CardGroup>

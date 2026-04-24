@@ -1,0 +1,87 @@
+{
+  "projectType": "frontend",
+  "projectName": "Shreyas — Portfolio v2",
+  "projectDescription": "A cinematic, dark-themed personal portfolio built with Next.js 16 featuring AI-powered blog assistance, WebGL shader effects, GSAP animations, and a Supabase-backed blog system.",
+  "theme": "willow",
+  "primaryColor": "#467bba",
+  "lightColor": "#13223b",
+  "darkColor": "#58aee2",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "environment-setup"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/content-layer",
+              "architecture/supabase-schema"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/hero-animations",
+              "features/blog-system",
+              "features/ai-assistant",
+              "features/skills-showcase",
+              "features/contact-system",
+              "features/seo"
+            ]
+          },
+          {
+            "group": "UI Components",
+            "pages": [
+              "components/liquid-metal",
+              "components/warp-background",
+              "components/timeline",
+              "components/animated-counter"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/vercel",
+              "deployment/customization"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Cinematic HLS video hero with GSAP-powered reveal animations",
+    "WebGL shader liquid-metal button effects",
+    "Supabase-backed dynamic blog with AI reading assistant (OpenRouter)",
+    "Particle-burst like system with Supabase persistence",
+    "Interactive skill radar with category-based visualization",
+    "Scroll-driven sticky timeline with GSAP animations",
+    "Contact system with Nodemailer SMTP, honeypot protection, and Hunter.io email verification",
+    "JSON-LD structured data, Open Graph, sitemap, and SEO optimization",
+    "Retro arcade 404 page",
+    "Vercel Analytics and Speed Insights integration",
+    "Fully responsive from 320px to 4K"
+  ],
+  "publicApiSurface": [
+    "GET /api/blogs — Fetch all blog posts from Supabase",
+    "GET /api/blogs/:id — Fetch single blog post by ID",
+    "POST /api/blogs/:id/ai-summary — Generate AI summary via OpenRouter",
+    "POST /api/blogs/:id/ai-chat — AI chat interaction for blog post",
+    "POST /api/contact — Submit contact form with email delivery and Supabase logging",
+    "lib/blogs.ts: getAllBlogs(), getLatestBlogs(limit), getBlogById(id)",
+    "lib/contact.ts: parseContactSubmission(), validateContactSubmission(), assertWithinRateLimit(), verifyEmailDeliverability(), insertContactRecord(), sendOwnerNotification(), sendAutoReply()",
+    "lib/blog-ai.ts: buildBlogContentSignature(), getDefaultBlogPromptSuggestions(), normalizePromptSuggestions(), stripBlogContentForAi(), extractJsonObject()",
+    "lib/skill-radar.ts: getSkillShowcaseCategories()",
+    "lib/content.ts: portfolioContent",
+    "supabase/setup.sql: blogs table, blog_likes table, get_blog_likes_count(), has_session_liked()"
+  ]
+}

@@ -1,0 +1,205 @@
+---
+title: "Animated Counter: eased number animations"
+description: "Intersection-observer number counter with cubic-ease-out easing, Intl.NumberFormat grouping, configurable prefix/suffix, decimal places, and duration."
+---
+
+`AnimatedCounter` renders a `<span>` that counts from `0` to a target `value` when the element scrolls into view. The animation uses `requestAnimationFrame` with a cubic ease-out curve (`1 - (1 - progress)³`) for a natural deceleration that feels responsive at the start and settles smoothly at the target number. `IntersectionObserver` triggers the count once when 45% of the element is visible, firing only one time per mount. Number formatting is handled by the native `Intl.NumberFormat` API, giving locale-aware thousands grouping and precise decimal control with no external dependency.
+
+In the portfolio's hero stats section, four `AnimatedCounter` instances display key metrics (years of experience, projects shipped, etc.) with varying suffixes (`+`, `k`, `%`) and grouping configurations. Each counter sits inside a glassmorphic stat card that animates into view independently.
+
+---
+
+## TypeScript interface
+
+```typescript components/animated-counter.tsx
+type AnimatedCounterProps = {
+  value: number;
+  decimals?: number;
+  durationMs?: number;
+  prefix?: string;
+  suffix?: string;
+  useGrouping?: boolean;
+  className?: string;
+};
+```
+
+---
+
+## Props
+
+<ParamField path="value" type="number" required>
+  The target number the counter animates toward. The animation always starts from `0` and counts up to this value. Accepts integers and floats — combine with `decimals` to display fractional targets correctly.
+</ParamField>
+
+<ParamField path="decimals" type="number" default="0">
+  Number of decimal places to display. Passed as both `minimumFractionDigits` and `maximumFractionDigits` to `Intl.NumberFormat`, so `decimals={1}` on `value={4.5}` displays `"4.5"` throughout the animation (not `"4"` jumping to `"4.5"` at the end).
+</ParamField>
+
+<ParamField path="durationMs" type="number" default="1400">
+  Total animation duration in milliseconds, measured from the first `requestAnimationFrame` tick after intersection. Shorter values (e.g. `800`) feel snappy for small numbers; longer values (e.g. `2000`) work better for large numbers where the counting motion needs to feel deliberate.
+</ParamField>
+
+<ParamField path="prefix" type="string" default='""'>
+  String prepended directly before the formatted number in the rendered output (e.g. `"$"`, `"~"`). No space is inserted automatically.
+</ParamField>
+
+<ParamField path="suffix" type="string" default='""'>
+  String appended directly after the formatted number (e.g. `"+"`, `"k"`, `"%"`, `" yrs"`). No space is inserted automatically.
+</ParamField>
+
+<ParamField path="useGrouping" type="boolean" default="true">
+  Whether to apply `Intl.NumberFormat` thousands grouping. `true` renders `1,200` for `value={1200}`; `false` renders `1200`. Disable grouping for values like years (`2024`), version numbers, or identifiers where commas would be confusing.
+</ParamField>
+
+<ParamField path="className" type="string">
+  Additional CSS classes applied to the wrapping `<span>`. Use for typography, color, or display overrides.
+</ParamField>
+
+---
+
+## Easing
+
+The easing function is a cubic ease-out applied in the `requestAnimationFrame` loop:
+
+```typescript components/animated-counter.tsx
+const easedProgress = 1 - (1 - progress) ** 3;
+setDisplayValue(value * easedProgress);
+```
+
+This produces fast initial counting that decelerates strongly as it approaches the target. At `50%` of the duration, approximately `87.5%` of the target value has been counted — most of the action happens in the first half of the animation.
+
+| Time elapsed | Linear progress | Eased progress | Displayed (value=100) |
+|-------------|-----------------|----------------|-----------------------|
+| 0%          | 0%              | 0%             | 0                     |
+| 25%         | 25%             | 57.8%          | ~58                   |
+| 50%         | 50%             | 87.5%          | ~88                   |
+| 75%         | 75%             | 98.4%          | ~98                   |
+| 100%        | 100%            | 100%           | 100                   |
+
+---
+
+## Usage examples
+
+<CodeGroup>
+
+```tsx Basic counter
+import { AnimatedCounter } from "@/components/animated-counter";
+
+export function BasicExample() {
+  return (
+    <AnimatedCounter value={42} />
+  );
+}
+```
+
+```tsx Hero stats (portfolio pattern)
+import { AnimatedCounter } from "@/components/animated-counter";
+
+const heroStats = [
+  { value: 3,    suffix: "+",   label: "Years building",  decimals: 0, useGrouping: false },
+  { value: 12,   suffix: "+",   label: "Projects shipped", decimals: 0, useGrouping: false },
+  { value: 1200, suffix: "k",   label: "Lines written",    decimals: 0, useGrouping: false },
+  { value: 4.8,  suffix: "/5",  label: "Avg. quality",     decimals: 1, useGrouping: false },
+];
+
+export function HeroStats() {
+  return (
+    <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      {heroStats.map((stat) => (
+        <div
+          key={stat.label}
+          className="rounded-[28px] border border-white/10 bg-black/30 p-5"
+        >
+          <p className="text-3xl text-white">
+            <AnimatedCounter
+              value={stat.value}
+              decimals={stat.decimals}
+              suffix={stat.suffix}
+              useGrouping={stat.useGrouping}
+              durationMs={1400}
+            />
+          </p>
+          <p className="mt-3 text-[11px] uppercase tracking-[0.24em] text-white/50">
+            {stat.label}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+```tsx With prefix and grouping
+import { AnimatedCounter } from "@/components/animated-counter";
+
+// Displays: "$1,250,000"
+export function RevenueCounter() {
+  return (
+    <AnimatedCounter
+      value={1250000}
+      prefix="$"
+      useGrouping={true}
+      durationMs={2000}
+      className="text-4xl font-bold text-green-400"
+    />
+  );
+}
+```
+
+```tsx Decimal percentage
+import { AnimatedCounter } from "@/components/animated-counter";
+
+// Displays: "99.9%"
+export function UptimeCounter() {
+  return (
+    <AnimatedCounter
+      value={99.9}
+      decimals={1}
+      suffix="%"
+      useGrouping={false}
+      durationMs={1800}
+    />
+  );
+}
+```
+
+</CodeGroup>
+
+---
+
+## Intersection observer behavior
+
+The component attaches an `IntersectionObserver` to its `<span>` ref with a threshold of `0.45` (45% visibility). The first time the element crosses this threshold, the animation starts and the observer disconnects immediately — the counter will not re-animate if the user scrolls away and back. This is the correct behavior for stat counters, which should feel like a one-time reveal, not a looping animation.
+
+```typescript components/animated-counter.tsx
+const observer = new IntersectionObserver(
+  ([entry]) => {
+    if (entry.isIntersecting) {
+      setShouldAnimate(true);
+      observer.disconnect(); // fires once only
+    }
+  },
+  { threshold: 0.45 },
+);
+```
+
+<Note>
+  Because `IntersectionObserver` fires asynchronously after mount, `AnimatedCounter` is a `"use client"` component and cannot be rendered in a React Server Component directly. Import it only inside client components or wrap it in a `<Suspense>` boundary if needed.
+</Note>
+
+<Tip>
+  For counters that appear below the fold (as in the portfolio hero stats section), pairing `AnimatedCounter` with a parent `motion.div` entrance animation creates a layered effect: the card slides in first, then the number counts up as the card settles into view.
+</Tip>
+
+---
+
+## Suffix and prefix cookbook
+
+| Displayed output | `value`   | `prefix` | `suffix` | `decimals` | `useGrouping` |
+|-----------------|-----------|----------|----------|------------|---------------|
+| `42+`           | `42`      | `""`     | `"+"`    | `0`        | `false`       |
+| `$1,200`        | `1200`    | `"$"`    | `""`     | `0`        | `true`        |
+| `99.9%`         | `99.9`    | `""`     | `"%"`    | `1`        | `false`       |
+| `~4.8/5`        | `4.8`     | `"~"`    | `"/5"`   | `1`        | `false`       |
+| `12k`           | `12`      | `""`     | `"k"`    | `0`        | `false`       |
+| `2,048 hrs`     | `2048`    | `""`     | `" hrs"` | `0`        | `true`        |

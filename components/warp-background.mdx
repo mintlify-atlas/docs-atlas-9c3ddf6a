@@ -1,0 +1,183 @@
+---
+title: "Warp Background: perspective beam grid"
+description: "A CSS 3D perspective grid with animated light beams rising from all four sides — configurable beam count, size, speed, delay range, and grid color."
+---
+
+`WarpBackground` wraps any content in a cinematic perspective-shifted grid with animated light beams rising from all four sides (top, bottom, left, right). The grid is constructed from four absolutely-positioned panels, each rotated in 3D space using CSS `perspective` and `rotateX` transforms. Inside each panel, deterministically-placed beams animate from bottom to top on an infinite loop using Framer Motion. The beam hue, delay, aspect ratio, and horizontal position are all computed from a seeded pseudo-random function, so the layout is stable between renders but visually varied.
+
+In the portfolio, `WarpBackground` wraps the hero photo panel to create the effect of a holographic display scanning its subject with light beams against a perspective grid.
+
+---
+
+## TypeScript interface
+
+```typescript components/ui/warp-background.tsx
+interface WarpBackgroundProps extends HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode;
+  perspective?: number;
+  beamsPerSide?: number;
+  beamSize?: number;
+  beamDelayMax?: number;
+  beamDelayMin?: number;
+  beamDuration?: number;
+  gridColor?: string;
+}
+```
+
+The component extends `HTMLAttributes<HTMLDivElement>`, so any standard div attribute (`id`, `style`, `aria-*`, event handlers, etc.) can be passed through directly.
+
+---
+
+## Props
+
+<ParamField path="children" type="React.ReactNode" required>
+  Content rendered above the perspective grid effect. Positioned in a relative `<div>` that sits in front of all beam and grid layers.
+</ParamField>
+
+<ParamField path="perspective" type="number" default="100">
+  CSS `perspective` value in pixels applied to the 3D container. Smaller values (e.g. `50`) create an aggressive, wide-angle vanishing point; larger values (e.g. `220`) produce a subtle, nearly-flat convergence as used on the hero photo panel.
+</ParamField>
+
+<ParamField path="beamsPerSide" type="number" default="3">
+  Number of beams emitted from each of the four grid sides. The total beam count across all sides is `beamsPerSide × 4`. Each beam's position is distributed evenly across the panel's width, based on the `beamSize` grid.
+</ParamField>
+
+<ParamField path="beamSize" type="number" default="5">
+  Width of each beam cell as a percentage of the panel width (`0–100`). Also controls the grid cell size: the repeating background grid pattern uses `beamSize%` as both the horizontal and vertical cell dimension.
+</ParamField>
+
+<ParamField path="beamDelayMax" type="number" default="3">
+  Maximum animation delay in seconds before a beam begins its first loop. Combined with `beamDelayMin`, this range creates the staggered, asynchronous effect where beams appear at different times.
+</ParamField>
+
+<ParamField path="beamDelayMin" type="number" default="0">
+  Minimum animation delay in seconds. Set above `0` to prevent any beams from firing immediately on mount.
+</ParamField>
+
+<ParamField path="beamDuration" type="number" default="3">
+  Time in seconds for a single beam to travel from its starting position off-screen (`100cqmax` from the bottom) to off-screen above (`-100%`). Lower values produce fast streaks; higher values produce slow, atmospheric sweeps.
+</ParamField>
+
+<ParamField path="gridColor" type="string" default="var(--border)">
+  CSS color value for the perspective grid lines. Accepts any valid CSS color string. The portfolio hero uses `"rgba(137,170,204,0.2)"` for a subtle steel-blue grid that complements the metallic design language.
+</ParamField>
+
+<ParamField path="className" type="string">
+  Classes applied to the outermost `<div>`. This element is `position: relative` and contains both the perspective 3D layer and the `children` content.
+</ParamField>
+
+---
+
+## Beam generation
+
+Each beam's properties are derived from a deterministic seeded function rather than `Math.random()`, which ensures the beam layout is consistent between server renders, React hydration, and subsequent re-renders:
+
+```typescript components/ui/warp-background.tsx
+// Produces a stable pseudo-random value in [min, max] from a numeric seed
+const getDeterministicValue = (seed: number, min: number, max: number) => {
+  const normalized = Math.abs(Math.sin(seed * 12.9898) * 43758.5453) % 1;
+  return min + normalized * (max - min);
+};
+```
+
+Per beam, the following are seeded from the beam's index and side offset:
+
+| Property      | Range                    | Description                                      |
+|--------------|--------------------------|--------------------------------------------------|
+| `x`           | `0%` to `(100 - beamSize)%` | Horizontal position within the panel, snapped to the grid |
+| `delay`       | `beamDelayMin` to `beamDelayMax` | Animation start delay in seconds |
+| `hue`         | `195` to `225`           | HSL hue — produces cool blue-cyan spectrum beams |
+| `aspectRatio` | `3` to `9`               | Beam height-to-width ratio (taller = longer beam) |
+| `width`       | `beamSize%`              | Beam width matches the grid cell width |
+
+---
+
+## Usage examples
+
+<Tabs>
+  <Tab title="Basic">
+
+```tsx components/example.tsx
+import { WarpBackground } from "@/components/ui/warp-background";
+
+export function ExampleCard() {
+  return (
+    <WarpBackground className="rounded-2xl border border-white/10 p-6">
+      <h2 className="text-2xl text-white">Content goes here</h2>
+      <p className="mt-2 text-white/60">
+        The perspective grid and beams appear behind this content.
+      </p>
+    </WarpBackground>
+  );
+}
+```
+
+  </Tab>
+  <Tab title="Hero photo panel (portfolio)">
+
+```tsx components/portfolio-shell.tsx
+<WarpBackground
+  className="hero-photo-panel overflow-hidden rounded-[38px] border border-white/12 bg-[#05070d]/92 p-5 sm:p-6 shadow-[0_32px_90px_rgba(0,0,0,0.48)]"
+  perspective={220}
+  beamsPerSide={5}
+  beamSize={6}
+  beamDuration={7}
+  beamDelayMin={0.2}
+  beamDelayMax={2.6}
+  gridColor="rgba(137,170,204,0.2)"
+>
+  {/* Photo, overlays, and corner decorations */}
+</WarpBackground>
+```
+
+  </Tab>
+  <Tab title="Dense fast grid">
+
+```tsx components/example-fast.tsx
+import { WarpBackground } from "@/components/ui/warp-background";
+
+export function DenseGrid() {
+  return (
+    <WarpBackground
+      perspective={80}
+      beamsPerSide={6}
+      beamSize={4}
+      beamDuration={1.8}
+      beamDelayMax={1.5}
+      gridColor="rgba(99,235,99,0.15)"
+      className="rounded-xl p-8"
+    >
+      <p className="text-white">Fast green grid</p>
+    </WarpBackground>
+  );
+}
+```
+
+  </Tab>
+</Tabs>
+
+---
+
+## Configuration guide
+
+<AccordionGroup>
+  <Accordion title="Making beams more dramatic">
+    Increase `beamsPerSide` to `6–8`, reduce `beamDuration` to `2–3`, and set `beamSize` to `4` for narrower, more frequent streaks. Widen the hue range by forking the `getDeterministicValue` seed offsets in the source if you need non-blue colors.
+  </Accordion>
+
+  <Accordion title="Adjusting perspective depth">
+    `perspective` values between `80–160` feel immersive and game-like. Values between `180–300` are more subtle and are suitable for decorative panels (as used in the portfolio). Values below `50` create extreme fish-eye distortion that draws strong attention to the grid.
+  </Accordion>
+
+  <Accordion title="Grid color and opacity">
+    Pass any CSS color to `gridColor`. The grid lines are rendered via CSS `background` gradients with 1px stripes. Use `rgba()` values to control opacity independently of the color: `"rgba(255,255,255,0.06)"` gives a very faint white grid, `"rgba(14,165,233,0.3)"` gives a sky-blue neon grid.
+  </Accordion>
+
+  <Accordion title="Performance">
+    Each beam is a Framer Motion `<motion.div>` on an infinite animation loop. With `beamsPerSide={3}` (default), 12 animated divs run simultaneously. On lower-powered devices, reduce `beamsPerSide` to `2` or increase `beamDuration` to reduce the number of active animation frames.
+  </Accordion>
+</AccordionGroup>
+
+<Tip>
+  Set `beamDelayMin` to `0.1`–`0.5` so no beams fire on the very first frame. This prevents a jarring flash of all beams appearing simultaneously during page load or when the component first mounts.
+</Tip>

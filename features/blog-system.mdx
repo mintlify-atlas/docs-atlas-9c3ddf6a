@@ -1,0 +1,284 @@
+---
+title: "Dynamic blog system with Supabase"
+description: "How blogs are stored in Supabase, fetched server-side, rendered in a draggable carousel and listing page, and liked with a particle-burst animation."
+---
+
+Every blog post lives in a single `blogs` Supabase table. There is no JSON sync step, no static generation prebuild, and no manual slug file — adding a row to the table is enough for it to appear on the site. The sections below cover the full pipeline from database row to rendered page.
+
+## Supabase schema
+
+The `blogs` table columns map directly to the `SupabaseBlogRow` type in `lib/blogs.ts`:
+
+| Column | Type | Notes |
+|---|---|---|
+| `id` | `text` or `number` | Becomes the URL slug (`/blogs/:id`) |
+| `title` | `text` | Trimmed; defaults to `"Untitled post"` |
+| `category` | `text` | Trimmed; defaults to `"Uncategorized"` |
+| `content` | `text` | Full markdown/MDX body |
+| `created_at` | `timestamptz` | Used for ordering and displayed dates |
+| `updated_at` | `timestamptz` | Falls back to `created_at` when null |
+| `src` | `text` or `null` | Thumbnail/hero image URL |
+| `isAchievement` | `boolean` | Shows an emerald "Achievement" badge |
+| `tags` | `text[]` | Array of tag strings |
+| `route` | `text` or `null` | Defaults to `/blogs/:id` |
+| `video` | `text` or `null` | Optional video URL inside post |
+
+## BlogPost type and normalization
+
+The raw Supabase row is normalized by `normalizeBlogPost` before it reaches any component. This single function handles all null-coalescing, field aliasing (`isAchievement` / `isachievement`), and URL validation for the `src` field.
+
+<CodeGroup>
+```typescript lib/blogs.ts
+type SupabaseBlogRow = {
+  id: string | number;
+  category?: string | null;
+  title?: string | null;
+  content?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  src?: string | null;
+  isAchievement?: boolean | null;
+  isachievement?: boolean | null;
+  tags?: string[] | null;
+  route?: string | null;
+  video?: string | null;
+};
+
+function safeMediaSource(src?: string | null) {
+  return src && (/^https?:\/\//.test(src) || src.startsWith("/")) ? src : null;
+}
+
+function normalizeBlogPost(row: SupabaseBlogRow): BlogPost {
+  const id = String(row.id);
+  const createdAt = row.created_at ?? new Date(0).toISOString();
+
+  return {
+    id,
+    category: row.category?.trim() || "Uncategorized",
+    title: row.title?.trim() || "Untitled post",
+    content: row.content ?? "",
+    created_at: createdAt,
+    updated_at: row.updated_at ?? createdAt,
+    src: safeMediaSource(row.src),
+    isAchievement: row.isAchievement ?? row.isachievement ?? false,
+    tags: Array.isArray(row.tags) ? row.tags.filter(Boolean) : [],
+    route: row.route?.trim() || `/blogs/${id}`,
+    video: row.video ?? null,
+  };
+}
+```
+</CodeGroup>
+
+## Data-fetching functions
+
+Three functions cover every read pattern the portfolio needs. All three use a server-only Supabase client built from `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` with sessions and token refresh disabled (safe for server components).
+
+<CodeGroup>
+```typescript lib/blogs.ts — getAllBlogs
+export async function getAllBlogs(): Promise<BlogPost[]> {
+  const client = getServerSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from("blogs")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error || !data) return [];
+    return data.map((row) => normalizeBlogPost(row as SupabaseBlogRow));
+  } catch {
+    return [];
+  }
+}
+```
+
+```typescript lib/blogs.ts — getLatestBlogs
+export async function getLatestBlogs(limit = 4): Promise<BlogPost[]> {
+  const client = getServerSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from("blogs")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error || !data) return [];
+    return data.map((row) => normalizeBlogPost(row as SupabaseBlogRow));
+  } catch {
+    return [];
+  }
+}
+```
+
+```typescript lib/blogs.ts — getBlogById
+export async function getBlogById(id: string): Promise<BlogPost | null> {
+  const client = getServerSupabaseClient();
+  if (!client) return null;
+
+  try {
+    const { data, error } = await client
+      .from("blogs")
+      .select("*")
+      .eq("id", id)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    return normalizeBlogPost(data as SupabaseBlogRow);
+  } catch {
+    return null;
+  }
+}
+```
+</CodeGroup>
+
+<Note>
+  All three functions return empty arrays or `null` on error rather than throwing. This means a Supabase outage degrades gracefully — the home page renders without the blog carousel rather than returning a 500.
+</Note>
+
+## Home page blog carousel
+
+The `BlogCarousel` component renders the four latest posts fetched by `getLatestBlogs(4)` on the server. It supports pointer drag, touch swipe, and keyboard arrow navigation.
+
+**Key behaviors:**
+
+- Card width is responsive: `360px` at ≥1024px, `320px` at ≥768px, `280px` at ≥640px, and nearly full-width on mobile.
+- `currentIndex` and a Framer Motion spring (`stiffness: 300, damping: 30`) drive the translate-X offset.
+- Drag threshold is `cardWidth / 3` — dragging one third of a card width is enough to commit a slide.
+- Velocity threshold of `±500` allows fast flicks to advance even without reaching the distance threshold.
+- Progress dots below the carousel are clickable pill indicators that jump directly to any index.
+
+<CodeGroup>
+```tsx components/blog-carousel.tsx (drag handling)
+const handleDragEnd = (
+  _: MouseEvent | TouchEvent | PointerEvent,
+  info: { offset: { x: number }; velocity: { x: number } }
+) => {
+  const threshold = cardWidth / 3;
+  if (info.offset.x > threshold || info.velocity.x > 500) {
+    paginate(-1);
+  } else if (info.offset.x < -threshold || info.velocity.x < -500) {
+    paginate(1);
+  }
+};
+```
+</CodeGroup>
+
+## Blog listing page
+
+`BlogsPageClient` (`components/blogs-page-client.tsx`) is the client component powering `/blogs`. It receives all posts as a prop from a server component and handles all filtering client-side with no additional round trips.
+
+<Tabs>
+  <Tab title="Search">
+    Full-text search across `title`, `content`, and `tags`. A 300ms debounce prevents filtering on every keystroke. Search activates only after 3+ characters to avoid noisy one- or two-character matches.
+  </Tab>
+  <Tab title="Category filter">
+    Categories are derived dynamically from the post set with `new Set(posts.map(p => p.category))`. Selecting a category filters posts by exact match. Selecting the active category again deselects it.
+  </Tab>
+  <Tab title="Sort">
+    Four sort options: `newest` (default, `created_at` descending), `oldest` (`created_at` ascending), `readTime` (word count / 220 ascending), and `title` (locale-aware A–Z).
+  </Tab>
+</Tabs>
+
+The active filter count is shown as a badge on the Filters button — it counts how many of the three filter dimensions (search, category, sort) are non-default.
+
+## Individual blog post page
+
+The `BlogPostHero` component renders the post header: category badge, optional "Achievement" pill in emerald, title, date, estimated read time, and up to five tags.
+
+<CodeGroup>
+```tsx components/blog-post-hero.tsx
+export function BlogPostHero({ post, readTime }: BlogPostHeroProps) {
+  return (
+    <>
+      <section className="relative overflow-hidden border-b border-white/10">
+        {/* radial gradient background */}
+        <div className="relative mx-auto max-w-[900px] px-6 pb-12 pt-28">
+          <div className="mt-8 flex flex-wrap items-center gap-3 text-xs uppercase">
+            <span>{post.category}</span>
+            {post.isAchievement ? (
+              <span className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1 text-emerald-200">
+                Achievement
+              </span>
+            ) : null}
+          </div>
+          <h1 className="mt-4 text-3xl font-semibold leading-tight text-text-primary">
+            {post.title}
+          </h1>
+          <div className="mt-6 flex flex-wrap items-center gap-4 text-sm text-muted">
+            <Calendar /> {formattedDate}
+            <Clock /> {readTime} min read
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {post.tags.slice(0, 5).map((tag) => (
+              <span key={tag} className="rounded-full border border-white/10 px-3 py-1 text-xs">
+                {tag}
+              </span>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {post.src ? (
+        <section className="mx-auto max-w-[1000px] px-6">
+          <div className="relative -mt-6 aspect-video overflow-hidden rounded-3xl border border-white/10">
+            <Image src={post.src} alt={post.title} fill className="object-cover" priority />
+          </div>
+        </section>
+      ) : null}
+    </>
+  );
+}
+```
+</CodeGroup>
+
+Read time is estimated at 220 words per minute with a minimum of 3 minutes: `Math.max(3, Math.round(wordCount / 220))`.
+
+## Like system
+
+The `LikeButton` component stores likes in the Supabase `blog_likes` table, keyed by `blog_id` and a `session_id` stored in `localStorage`. Toggling like/unlike runs an optimistic UI update first, then a Supabase insert or delete, then a count verification.
+
+The like animation plays 16 particles at evenly spaced 22.5° angles plus up to ±10° random jitter, an 8-point outer ring burst at 45° steps, and 5 mini sparkle dots on a pentagonal spread. All particles are Framer Motion `motion.span` / `motion.div` elements rendered with `AnimatePresence`.
+
+<CodeGroup>
+```tsx components/like-button.tsx (particle generation)
+const createParticles = useCallback((): Particle[] => {
+  const colors = ["#ff1759", "#ff4d8d", "#ff85b3", "#ffb8d1", "#ff0055", "#ff6b9d"];
+  return Array.from({ length: 16 }, (_, i) => {
+    const angle = (i * 22.5) + (Math.random() * 20 - 10);
+    return {
+      id: Date.now() + i,
+      angle,
+      distance: 25 + Math.random() * 35,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      size: 2 + Math.random() * 4,
+    };
+  });
+}, []);
+```
+</CodeGroup>
+
+The heart icon itself animates with a custom spring-like bezier `[0.175, 0.885, 0.32, 1.275]` through the keyframes `[1, 1.35, 0.95, 1.05, 1]` over 500ms. The particle set is cleared after 700ms.
+
+## How to publish a new blog post
+
+<Steps>
+  <Step title="Open the Supabase dashboard">
+    Navigate to your project, then **Table Editor → blogs**.
+  </Step>
+  <Step title="Insert a new row">
+    Click **Insert row**. Fill in `title`, `category`, `content` (markdown), and optionally `src` (thumbnail URL), `tags` (array), `video` (URL), and `isAchievement` (boolean).
+  </Step>
+  <Step title="Leave id to auto-generate or set a slug">
+    If your `id` column is `text` with no default, set it to a short URL-safe slug like `my-post-slug`. This becomes the URL: `/blogs/my-post-slug`.
+  </Step>
+  <Step title="Save and verify">
+    Click **Save**. Because `app/page.tsx` uses `export const dynamic = "force-dynamic"`, the next request to the home page fetches the latest four posts fresh from Supabase. The `/blogs` page is also fully dynamic, so your post appears immediately with no redeploy.
+  </Step>
+</Steps>
+
+<Warning>
+  The `src` field is validated by `safeMediaSource()`. It must start with `https://`, `http://`, or `/` — any other value is silently set to `null` and no thumbnail will be displayed.
+</Warning>

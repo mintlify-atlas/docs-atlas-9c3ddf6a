@@ -1,0 +1,222 @@
+---
+title: "Timeline: scroll-driven GSAP sticky cards"
+description: "A scroll-linked alternating timeline with Framer Motion entrance animations, a glowing progress spine, and glassmorphic cards driven by typed JSON data."
+---
+
+`Timeline` renders a vertical chronological layout where entries alternate left and right on desktop (always right on mobile), separated by a center spine that fills with a glowing gradient as the user scrolls. Each entry consists of a prominent year badge and a glassmorphic card. Both the badge and card animate in on intersection with configurable x/y slide-and-fade transitions using Framer Motion's `useInView` hook. The center spine itself uses `useScroll` and `useTransform` to drive a motion fill that tracks scroll progress through the entire timeline container.
+
+In the portfolio, `Timeline` receives its data from `content-data/timeline.json` via a server-side content loader. The raw JSON entries are mapped in `portfolio-shell.tsx` into the `TimelineEntry[]` format, with the `content` field built as a JSX fragment containing a phase badge and three structured detail rows (Belief, Learned, Change).
+
+---
+
+## TypeScript interface
+
+```typescript components/ui/timeline.tsx
+// The shape of each entry passed to the Timeline component
+interface TimelineEntry {
+  title: string;        // Displayed as the year badge heading
+  content: React.ReactNode; // Rendered inside the glassmorphic card
+}
+
+// The Timeline component props
+interface TimelineProps {
+  data: TimelineEntry[];
+  className?: string;
+}
+```
+
+---
+
+## Props
+
+<ParamField path="data" type="TimelineEntry[]" required>
+  Array of timeline entries. Each entry has a `title` (displayed as the year label) and `content` (any React node rendered inside the card). The array order determines top-to-bottom rendering order.
+</ParamField>
+
+<ParamField path="className" type="string">
+  Additional classes applied to the outermost `<div>` container. The container is `position: relative` and `width: 100%`. Use to add margin, max-width, or padding overrides.
+</ParamField>
+
+---
+
+## Timeline data structure
+
+Timeline entries originate from `content-data/timeline.json`. The JSON schema defines one entry per year:
+
+```json content-data/timeline.json
+{
+  "schemaVersion": "1.0.0",
+  "content": {
+    "title": "Timeline",
+    "heading": "Learning Timeline",
+    "description": "A year-by-year view of how curiosity turned into deliberate building, product thinking, and systems-focused execution.",
+    "entries": [
+      {
+        "year": "2024",
+        "phase": "Execution Mode",
+        "belief": "I need to learn everything first",
+        "learned": "Build, learn, repeat",
+        "change": "Started real projects like Talk2Job"
+      },
+      {
+        "year": "2025",
+        "phase": "Builder Mindset",
+        "belief": "Projects = portfolio",
+        "learned": "Projects are proof of thinking",
+        "change": "Started building with intent and UX focus"
+      }
+    ]
+  }
+}
+```
+
+<ResponseField name="year" type="string" required>
+  The year label displayed as the large gradient heading (e.g. `"2024"`). Passed directly to `TimelineEntry.title`.
+</ResponseField>
+
+<ResponseField name="phase" type="string" required>
+  A named phase for the year (e.g. `"Execution Mode"`). Rendered as a pill badge inside the card content.
+</ResponseField>
+
+<ResponseField name="belief" type="string" required>
+  The dominant belief or assumption held during this year. Shown in a detail row labelled "Belief".
+</ResponseField>
+
+<ResponseField name="learned" type="string" required>
+  The key lesson extracted from the year's experience. Shown in a detail row labelled "Learned".
+</ResponseField>
+
+<ResponseField name="change" type="string" required>
+  The concrete action or shift in direction that resulted. Shown in a detail row labelled "Change".
+</ResponseField>
+
+---
+
+## Data mapping (portfolio shell)
+
+The portfolio shell converts raw JSON entries into `TimelineEntry[]` by building a JSX `content` node for each:
+
+```tsx components/portfolio-shell.tsx
+const timelineEntries = content.timeline.entries.map((entry) => ({
+  title: entry.year,
+  content: (
+    <>
+      {/* Phase badge */}
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="rounded-full border border-[#89AACC]/20 bg-[#89AACC]/10 px-3 py-1 text-[11px] uppercase tracking-[0.26em] text-[#bdd3ea]">
+          {entry.phase}
+        </span>
+      </div>
+
+      {/* Detail rows: Belief, Learned, Change */}
+      <div className="mt-4 grid gap-3 sm:grid-cols-1">
+        {[
+          { label: "Belief", value: entry.belief },
+          { label: "Learned", value: entry.learned },
+          { label: "Change", value: entry.change },
+        ].map((detail) => (
+          <div
+            key={`${entry.year}-${detail.label}`}
+            className="rounded-[16px] border border-white/[0.06] bg-white/[0.02] p-3.5 sm:p-4"
+          >
+            <p className="text-[10px] uppercase tracking-[0.24em] text-[#89AACC]/80">
+              {detail.label}
+            </p>
+            <p className="mt-2 text-sm leading-6 text-text-primary/82">
+              {detail.value}
+            </p>
+          </div>
+        ))}
+      </div>
+    </>
+  ),
+}));
+
+// Then rendered with:
+<Timeline data={timelineEntries} />
+```
+
+---
+
+## Usage examples
+
+<Tabs>
+  <Tab title="Basic usage">
+
+```tsx components/my-timeline.tsx
+import { Timeline } from "@/components/ui/timeline";
+
+const entries = [
+  {
+    title: "2023",
+    content: (
+      <div>
+        <p className="text-white font-medium">Direction found</p>
+        <p className="mt-2 text-sm text-white/60">
+          Focus shifted to AI/ML and product thinking.
+        </p>
+      </div>
+    ),
+  },
+  {
+    title: "2024",
+    content: (
+      <div>
+        <p className="text-white font-medium">Execution mode</p>
+        <p className="mt-2 text-sm text-white/60">
+          Shipped real projects. Build, learn, repeat.
+        </p>
+      </div>
+    ),
+  },
+];
+
+export function MyTimeline() {
+  return <Timeline data={entries} />;
+}
+```
+
+  </Tab>
+  <Tab title="With container (portfolio pattern)">
+
+```tsx components/portfolio-shell.tsx
+<div className="rounded-[32px] border border-white/10 bg-[linear-gradient(180deg,rgba(6,10,16,0.9)_0%,rgba(4,7,12,0.96)_100%)] p-4 shadow-[0_28px_90px_rgba(0,0,0,0.24)] md:p-6 lg:p-8">
+  <Timeline data={timelineEntries} />
+</div>
+```
+
+  </Tab>
+</Tabs>
+
+---
+
+## Animation behavior
+
+The timeline uses two independent animation systems:
+
+### Scroll-driven spine fill
+
+`useScroll` tracks the scroll position relative to the timeline container with offsets `["start 85%", "end 60%"]`. The animated spine height is mapped from `scrollYProgress [0, 1]` to `[0, containerHeight]` using `useTransform`. The spine fades in using `opacityTransform` over the first 2% of scroll progress.
+
+### Per-item entrance animations
+
+Each `TimelineItem` uses `useInView` with a `-60px` margin to trigger once when the item scrolls into view. Cards slide in from the outside edge (`x: ±40`) on desktop and from below (`y: 20`) on mobile. The glowing dot uses a spring animation (`stiffness: 300, damping: 20`) for a physical snap-in feel. All animations are `once: true` so they do not replay on scroll-back.
+
+| Element       | Initial state            | Final state | Transition                            |
+|--------------|--------------------------|-------------|---------------------------------------|
+| Desktop card  | `opacity: 0, x: ±40`    | `opacity: 1, x: 0` | 0.55s ease `[0.25, 0.46, 0.45, 0.94]`, delay 0.15s |
+| Year badge    | `opacity: 0, y: 16`     | `opacity: 1, y: 0` | 0.5s ease-out, delay 0.1s             |
+| Mobile card   | `opacity: 0, x: 24`     | `opacity: 1, x: 0` | 0.5s ease `[0.25, 0.46, 0.45, 0.94]`, delay 0.2s |
+| Spine dot     | `scale: 0, opacity: 0`  | `scale: 1, opacity: 1` | Spring: stiffness 300, damping 20, delay 0.05s |
+
+---
+
+## Layout rules
+
+- **Desktop** (`md` and above): three-column grid (`1fr 56px 1fr`). Even-indexed entries (0, 2, 4…) render their card in the left column; odd-indexed entries render in the right column. Year badges always appear on the opposite side from the card.
+- **Mobile**: two-column grid (`40px 1fr`). The year badge renders above the card in the right column; the spine node occupies the left column.
+- The spine line sits at `left: 19px` on mobile and `left: 50%` (translated -50%) on desktop, keeping it perfectly centered in the `56px` icon column.
+
+<Note>
+  `Timeline` uses `ResizeObserver` to track the container height dynamically. This ensures the scroll-driven spine fill animates correctly when the layout changes due to viewport resizing, font loading, or dynamic content injection.
+</Note>

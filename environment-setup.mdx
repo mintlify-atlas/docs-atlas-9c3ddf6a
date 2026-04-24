@@ -1,0 +1,227 @@
+---
+title: "Environment variables for Shreyas Portfolio"
+description: "Complete reference for every environment variable in .env.example — Supabase, OpenRouter, SMTP, and contact form keys with setup instructions."
+---
+
+The portfolio reads configuration from a `.env.local` file at the project root. This file is never committed to git — it exists only on your local machine and on whatever deployment platform you use (such as Vercel). The `.env.example` file in the repository lists every supported variable with placeholder values you replace with your own credentials.
+
+<Warning>
+  Never commit `.env.local` to version control. It contains secret keys that grant access to your Supabase database, email provider, and AI API account. Verify that `.env.local` appears in your `.gitignore` before your first commit. If you accidentally commit secrets, rotate all affected keys immediately.
+</Warning>
+
+## Complete template
+
+Copy this block into your `.env.local` and fill in real values:
+
+```bash .env.local
+# Supabase Configuration
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+
+# Supabase Service Role Key (server-side operations only)
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+
+# OpenRouter — AI blog assistant
+OPENROUTER_API_KEY=your-openrouter-api-key-here
+OPENROUTER_MODEL=meta-llama/llama-3.3-8b-instruct:free
+# OPENROUTER_MODELS=meta-llama/llama-3.3-8b-instruct:free,openrouter/auto
+OPENROUTER_APP_NAME=Shreyas Portfolio
+
+# Site URL (used for OpenRouter referer header)
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+# Contact form
+HUNTER_API_KEY=your-hunter-api-key-here
+WEB3FORMS_ACCESS_KEY=your-access-key-here
+
+# SMTP / Nodemailer
+SMTP_HOST=smtp.your-email-provider.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+CONTACT_FROM_EMAIL=your-email-here
+```
+
+## Variable reference by service
+
+<AccordionGroup>
+  <Accordion title="Supabase" icon="database" defaultOpen={true}>
+    Supabase provides the database backend for the blog system, like counters, and server-side data operations.
+
+    **`NEXT_PUBLIC_SUPABASE_URL`** — Required
+
+    The public URL for your Supabase project. This is safe to expose in the browser (hence the `NEXT_PUBLIC_` prefix) because row-level security on the database controls what anonymous users can read or write.
+
+    - Format: `https://<project-ref>.supabase.co`
+    - Where to find it: [Supabase dashboard](https://supabase.com/dashboard) → your project → **Project Settings** → **API** → **Project URL**
+
+    ---
+
+    **`NEXT_PUBLIC_SUPABASE_ANON_KEY`** — Required
+
+    The anonymous (public) API key for your Supabase project. This key is intentionally public — access is controlled by Supabase row-level security policies, not by keeping this key secret.
+
+    - Where to find it: [Supabase dashboard](https://supabase.com/dashboard) → **Project Settings** → **API** → **Project API keys** → `anon public`
+
+    ---
+
+    **`SUPABASE_SERVICE_ROLE_KEY`** — Optional for local read-only dev
+
+    The service role key bypasses row-level security and is used exclusively in server-side API routes (never exposed to the browser). It is needed for admin-level operations such as creating or deleting blog posts server-side.
+
+    - Where to find it: [Supabase dashboard](https://supabase.com/dashboard) → **Project Settings** → **API** → **Project API keys** → `service_role`
+    - **Keep this key strictly server-side.** Never reference it in client components or pass it to the browser.
+  </Accordion>
+
+  <Accordion title="OpenRouter (AI blog assistant)" icon="robot">
+    OpenRouter provides access to large language models used by the AI blog reading assistant. The assistant appears on each blog post and can summarize content and answer reader questions.
+
+    **`OPENROUTER_API_KEY`** — Required for AI assistant
+
+    Your OpenRouter API key. Without this, the AI assistant panel will fail at runtime.
+
+    - Where to get it: Create an account at [openrouter.ai](https://openrouter.ai), then go to **Keys** to generate a key.
+
+    ---
+
+    **`OPENROUTER_MODEL`** — Optional (has default)
+
+    The model identifier to use for blog assistant completions. Defaults to `meta-llama/llama-3.3-8b-instruct:free` if not set.
+
+    ```bash
+    OPENROUTER_MODEL=meta-llama/llama-3.3-8b-instruct:free
+    ```
+
+    Free-tier models on OpenRouter may return `503` responses when the upstream provider is busy. If you see frequent failures, switch to a paid model or use `OPENROUTER_MODELS` instead.
+
+    ---
+
+    **`OPENROUTER_MODELS`** — Optional
+
+    A comma-separated fallback list of model identifiers. When the primary model returns a `503`, the assistant retries with the next model in the list. Use this instead of `OPENROUTER_MODEL` when you want resilient multi-model fallback:
+
+    ```bash
+    OPENROUTER_MODELS=meta-llama/llama-3.3-8b-instruct:free,openrouter/auto
+    ```
+
+    If both `OPENROUTER_MODEL` and `OPENROUTER_MODELS` are set, the code uses `OPENROUTER_MODELS`.
+
+    ---
+
+    **`OPENROUTER_APP_NAME`** — Optional
+
+    A display name sent in the `X-Title` header to OpenRouter. Shows up in your OpenRouter dashboard usage logs so you can identify traffic from this app.
+
+    ```bash
+    OPENROUTER_APP_NAME=Shreyas Portfolio
+    ```
+  </Accordion>
+
+  <Accordion title="Site URL" icon="globe">
+    **`NEXT_PUBLIC_SITE_URL`** — Optional
+
+    The canonical URL of the deployed site. Used as the `HTTP-Referer` header in OpenRouter API requests (OpenRouter uses this to identify the calling application) and for constructing absolute URLs in the sitemap and Open Graph metadata.
+
+    - Local development default: `http://localhost:3000`
+    - Production: `https://shreyas.cloud` (or your own domain)
+
+    ```bash
+    # Local
+    NEXT_PUBLIC_SITE_URL=http://localhost:3000
+
+    # Production
+    NEXT_PUBLIC_SITE_URL=https://shreyas.cloud
+    ```
+  </Accordion>
+
+  <Accordion title="Contact form (Hunter + Web3Forms)" icon="envelope">
+    The contact form uses two delivery mechanisms: Web3Forms as the primary endpoint and Nodemailer (SMTP) as the secondary. Hunter API is used to validate email addresses before submission.
+
+    **`HUNTER_API_KEY`** — Optional
+
+    Used to verify that a submitted email address exists before processing the contact form. Without this key, email validation is skipped and the form still works.
+
+    - Where to get it: Create a free account at [hunter.io](https://hunter.io) → **API** → copy your key.
+
+    ---
+
+    **`WEB3FORMS_ACCESS_KEY`** — Optional
+
+    The access key for your [Web3Forms](https://web3forms.com) endpoint. Web3Forms acts as the primary contact form delivery service — when a visitor submits the form, the message is forwarded to your inbox via Web3Forms.
+
+    - Where to get it: Register at [web3forms.com](https://web3forms.com) with your destination email address. The access key is shown immediately after registration.
+  </Accordion>
+
+  <Accordion title="SMTP / Nodemailer (email delivery)" icon="mail">
+    Nodemailer provides a secondary email delivery path and is used to send auto-reply confirmations to visitors who submit the contact form. All five SMTP variables must be set together for Nodemailer to work.
+
+    **`SMTP_HOST`** — Optional
+
+    The hostname of your SMTP server.
+
+    ```bash
+    SMTP_HOST=smtp.your-email-provider.com
+    ```
+
+    Common values: `smtp.gmail.com` (Gmail), `smtp.sendgrid.net` (SendGrid), `smtp.mailgun.org` (Mailgun).
+
+    ---
+
+    **`SMTP_PORT`** — Optional
+
+    The port your SMTP server listens on. Standard values:
+
+    | Port | Protocol |
+    |---|---|
+    | `587` | STARTTLS (recommended) |
+    | `465` | SSL/TLS |
+    | `25` | Unencrypted (not recommended) |
+
+    ```bash
+    SMTP_PORT=587
+    ```
+
+    ---
+
+    **`SMTP_USER`** — Optional
+
+    The username used to authenticate with the SMTP server. Usually the email address associated with your account.
+
+    ```bash
+    SMTP_USER=your-smtp-username
+    ```
+
+    ---
+
+    **`SMTP_PASS`** — Optional
+
+    The password or app-specific password for SMTP authentication. If you use Gmail, generate an [app password](https://myaccount.google.com/apppasswords) rather than your main account password.
+
+    ```bash
+    SMTP_PASS=your-smtp-password
+    ```
+
+    ---
+
+    **`CONTACT_FROM_EMAIL`** — Optional
+
+    The `From:` address used in outgoing emails sent by Nodemailer. This is the address that appears as the sender in the visitor's auto-reply and in your copy of the message.
+
+    ```bash
+    CONTACT_FROM_EMAIL=your-email-here
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Vercel deployment
+
+When deploying to Vercel, add all environment variables through the Vercel dashboard instead of committing a `.env.local` file:
+
+1. Open your project in the [Vercel dashboard](https://vercel.com/dashboard).
+2. Go to **Settings** → **Environment Variables**.
+3. Add each variable from the template above, selecting the appropriate environments (Production, Preview, Development).
+4. Redeploy the project for the new variables to take effect.
+
+<Tip>
+  On Vercel, variables prefixed with `NEXT_PUBLIC_` are embedded into the client-side JavaScript bundle at build time. All other variables remain server-only. Set `NEXT_PUBLIC_SITE_URL` to your production domain (e.g., `https://shreyas.cloud`) when deploying, not `http://localhost:3000`.
+</Tip>

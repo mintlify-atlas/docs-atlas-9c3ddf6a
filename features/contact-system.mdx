@@ -1,0 +1,217 @@
+---
+title: "Contact form: validation, email, and rate limiting"
+description: "Contact submission pipeline: honeypot check, in-memory rate limiting, Hunter.io deliverability verification, Supabase insert, and dual Nodemailer emails."
+---
+
+The contact form at the bottom of the portfolio is backed by `POST /api/contact` — a Node.js API route that runs a multi-stage validation and delivery pipeline before accepting a submission. The pipeline is designed so that each stage fails fast and returns a human-readable error that surfaces directly in the form UI.
+
+## ContactSubmission type
+
+<CodeGroup>
+```typescript lib/contact.ts
+type ContactSubmission = {
+  name: string;
+  email: string;
+  message: string;
+  honeypot?: string;
+};
+```
+</CodeGroup>
+
+The `honeypot` field maps to the hidden form field named `_gotcha` (also aliased to `website` and `honeypot` for flexibility). It is never shown to real users but bots filling in forms programmatically will populate it.
+
+## Full submission pipeline
+
+<Steps>
+  <Step title="IP extraction">
+    `getClientIp` reads `x-forwarded-for` (first IP in the comma-separated list) and falls back to `x-real-ip`, then `"unknown"`. This IP is the rate-limit key.
+
+    ```typescript
+    export function getClientIp(request: Request) {
+      const forwardedFor = request.headers.get("x-forwarded-for");
+      if (forwardedFor) {
+        const [first] = forwardedFor.split(",");
+        if (first?.trim()) return first.trim();
+      }
+      return request.headers.get("x-real-ip")?.trim() || "unknown";
+    }
+    ```
+  </Step>
+  <Step title="Rate limiting">
+    `assertWithinRateLimit` checks an in-memory `Map<string, RateLimitBucket>`. Each IP is allowed **5 requests per 10-minute window**. Exceeding the limit throws, which returns HTTP 429.
+
+    ```typescript
+    const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
+    const RATE_LIMIT_MAX_REQUESTS = 5;
+
+    export function assertWithinRateLimit(ipAddress: string) {
+      const now = Date.now();
+      cleanupRateLimitStore(now);
+      const key = ipAddress || "unknown";
+      const existing = rateLimitStore.get(key);
+
+      if (!existing || existing.resetAt <= now) {
+        rateLimitStore.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+        return;
+      }
+
+      if (existing.count >= RATE_LIMIT_MAX_REQUESTS) {
+        throw new Error("Too many contact attempts. Please try again in a few minutes.");
+      }
+
+      existing.count += 1;
+      rateLimitStore.set(key, existing);
+    }
+    ```
+
+    Expired buckets are cleaned up on every call by iterating the store and deleting entries where `resetAt <= now`.
+  </Step>
+  <Step title="Honeypot check">
+    `isHoneypotTriggered` returns `true` if `submission.honeypot` is a non-empty string. When triggered, the route returns HTTP 200 with `{ success: true }` — the bot gets no signal that its submission was discarded.
+  </Step>
+  <Step title="Input parsing and normalization">
+    `parseContactSubmission` normalizes each field:
+    - `name` → trimmed, whitespace-collapsed, max 120 chars
+    - `email` → trimmed, lowercased, max 254 chars
+    - `message` → trimmed, `\r\n` normalized to `\n`, max 4000 chars
+
+    ```typescript
+    export function parseContactSubmission(input: Record<string, unknown>): ContactSubmission {
+      return {
+        name: normalizeName(String(input.name ?? "")),
+        email: normalizeEmail(String(input.email ?? "")),
+        message: normalizeMessage(String(input.message ?? "")),
+        honeypot: sanitizePlainText(String(input._gotcha ?? input.website ?? input.honeypot ?? "")),
+      };
+    }
+    ```
+  </Step>
+  <Step title="Format validation">
+    `validateContactSubmission` checks three rules and throws on the first failure:
+    - `name` must be at least 2 characters
+    - `email` must match `/^[^\s@]+@[^\s@]+\.[^\s@]+$/`
+    - `message` must be at least 12 characters
+
+    ```typescript
+    export function validateContactSubmission(submission: ContactSubmission) {
+      if (!submission.name || submission.name.length < 2)
+        throw new Error("Please enter your name.");
+      if (!submission.email || !isEmailFormatValid(submission.email))
+        throw new Error("Please enter a valid email address");
+      if (!submission.message || submission.message.length < 12)
+        throw new Error("Please enter a message with a bit more detail.");
+    }
+    ```
+  </Step>
+  <Step title="Hunter.io deliverability check">
+    `verifyEmailDeliverability` calls the Hunter.io Email Verifier API. A valid email must pass all of these checks:
+    - `status === "valid"`
+    - `regexp !== false`
+    - `gibberish !== true`
+    - `disposable !== true`
+    - `block !== true`
+    - `smtp_check !== false`
+    - `score >= 70`
+
+    When the API returns HTTP 202 (asynchronous verification), the function waits 1.5 seconds and retries once. Any failure throws `"Please enter a valid email address"`.
+  </Step>
+  <Step title="Supabase contacts insert">
+    `insertContactRecord` uses a service-role Supabase client (`SUPABASE_SERVICE_ROLE_KEY`) to insert into the `contacts` table. This bypasses Row Level Security so no auth is needed in the API route.
+  </Step>
+  <Step title="Owner notification email">
+    `sendOwnerNotification` sends an HTML + plain-text email to `CONTACT_OWNER_EMAIL` (defaults to `CONTACT_FROM_EMAIL`) via Nodemailer. The `Reply-To` header is set to the sender's email for one-click replies.
+  </Step>
+  <Step title="Auto-reply to sender">
+    `sendAutoReply` sends a styled HTML auto-reply to the person who submitted the form. The email uses `Inter` and `Playfair Display` fonts, a gradient top border, a "Cached" badge pattern, and dark mode CSS overrides. The plain-text fallback is a clean multi-line string with the same information.
+  </Step>
+</Steps>
+
+## Key functions
+
+<CodeGroup>
+```typescript lib/contact.ts — verifyEmailDeliverability
+export async function verifyEmailDeliverability(email: string) {
+  const { response, payload } = await fetchHunterVerification(email);
+
+  if (response.status === 202) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const retry = await fetchHunterVerification(email);
+    const retryData = retry.payload.data;
+    if (!retryData) throw new Error("Please enter a valid email address");
+    return evaluateHunterVerification(retryData);
+  }
+
+  const data = payload.data;
+  if (!data) throw new Error("Please enter a valid email address");
+  return evaluateHunterVerification(data);
+}
+
+function evaluateHunterVerification(data) {
+  const status = String(data.status ?? "").toLowerCase();
+  const score = typeof data.score === "number" ? data.score : 0;
+  const isAccepted =
+    status === "valid" &&
+    data.regexp !== false &&
+    data.gibberish !== true &&
+    data.disposable !== true &&
+    data.block !== true &&
+    data.smtp_check !== false &&
+    score >= 70;
+
+  if (!isAccepted) throw new Error("Please enter a valid email address");
+  return { status, score };
+}
+```
+</CodeGroup>
+
+<CodeGroup>
+```typescript lib/contact.ts — SMTP transport
+function getSmtpTransport() {
+  const port = Number(getRequiredEnv("SMTP_PORT"));
+
+  return nodemailer.createTransport({
+    host: getRequiredEnv("SMTP_HOST"),
+    port,
+    secure: port === 465,
+    auth: {
+      user: getRequiredEnv("SMTP_USER"),
+      pass: getRequiredEnv("SMTP_PASS"),
+    },
+  });
+}
+```
+</CodeGroup>
+
+`secure: port === 465` automatically enables TLS for port 465 (SMTPS). Port 587 uses STARTTLS which Nodemailer handles by default.
+
+## HTTP error mapping
+
+The route handler maps error messages to appropriate status codes:
+
+| Condition | Status |
+|---|---|
+| "too many contact attempts" | 429 |
+| "please enter" (validation errors) | 400 |
+| "missing", "hunter", "smtp", "supabase" (config/infra errors) | 503 |
+| Everything else | 500 |
+
+<Warning>
+  `HUNTER_API_KEY` is required. Without it, `getRequiredEnv("HUNTER_API_KEY")` throws `"Missing HUNTER_API_KEY."`, which maps to HTTP 503. The form will show `"Contact service is temporarily unavailable."` until the key is set.
+</Warning>
+
+## Required environment variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `HUNTER_API_KEY` | Yes | Hunter.io API key for email deliverability checks |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key for server-side inserts |
+| `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
+| `SMTP_HOST` | Yes | SMTP server hostname |
+| `SMTP_PORT` | Yes | SMTP port (465 for SMTPS, 587 for STARTTLS) |
+| `SMTP_USER` | Yes | SMTP username |
+| `SMTP_PASS` | Yes | SMTP password |
+| `CONTACT_FROM_EMAIL` | Yes | The `From` address for outgoing emails |
+| `CONTACT_OWNER_EMAIL` | No | Where owner notifications are sent (defaults to `CONTACT_FROM_EMAIL`) |
+| `CONTACT_REPLY_TO_EMAIL` | No | `Reply-To` for auto-reply (defaults to `CONTACT_FROM_EMAIL`) |
+| `NEXT_PUBLIC_SITE_URL` | No | Used in the auto-reply CTA link (defaults to `https://shreyas.cloud`) |
+| `WEB3FORMS_ACCESS_KEY` | No | Optional Web3Forms fallback (exposed via `GET /api/contact`) |

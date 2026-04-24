@@ -1,0 +1,200 @@
+---
+title: "Deploy Shreyas Portfolio to Vercel"
+description: "Step-by-step guide to deploying the Shreyas J Portfolio v2 on Vercel, including environment variable setup, custom domains, and built-in analytics."
+---
+
+Vercel is the recommended platform for this portfolio. The project is a Next.js 16 application with server-side data fetching, Supabase integration, and Nodemailer-based contact delivery — all of which map cleanly onto Vercel's serverless infrastructure. Vercel Analytics and Speed Insights are already wired into the root layout and activate automatically the moment you deploy.
+
+## Prerequisites
+
+- Node.js 18 or later (for local development)
+- A [Vercel](https://vercel.com) account
+- A [Supabase](https://supabase.com) project (required for blog posts, likes, and skill radar data)
+- An [OpenRouter](https://openrouter.ai) API key (required for the AI blog assistant)
+- SMTP credentials for Nodemailer contact delivery
+
+## Full deployment flow
+
+<Steps>
+  <Step title="Fork or clone the repository">
+    Start by forking the repository on GitHub so you have your own copy to deploy from. If you are deploying without modifications, you can also import the upstream URL directly into Vercel.
+
+    <CodeGroup>
+
+    ```bash clone via SSH
+    git clone git@github.com:SmartKidzee/new_portfoliov2.git
+    cd new_portfoliov2
+    ```
+
+    ```bash clone via HTTPS
+    git clone https://github.com/SmartKidzee/new_portfoliov2.git
+    cd new_portfoliov2
+    ```
+
+    </CodeGroup>
+
+    Install dependencies to verify the project builds locally before pushing:
+
+    ```bash install and build
+    npm install
+    npm run build
+    ```
+  </Step>
+
+  <Step title="Create a new Vercel project">
+    1. Go to [vercel.com/new](https://vercel.com/new) and click **Add New Project**.
+    2. Select **Import Git Repository** and connect to your fork (or paste the repository URL).
+    3. Vercel will automatically detect **Next.js** as the framework. Leave the build settings at their defaults:
+
+    | Setting | Value |
+    |---|---|
+    | Framework preset | Next.js |
+    | Build command | `next build` |
+    | Output directory | `.next` |
+    | Install command | `npm install` |
+
+    Do not click **Deploy** yet — you need to set environment variables first.
+  </Step>
+
+  <Step title="Set environment variables">
+    In the Vercel project dashboard, go to **Settings → Environment Variables** and add every variable listed below. These map directly to the `.env.example` file in the repository root.
+
+    <Warning>
+      `SUPABASE_SERVICE_ROLE_KEY` is a privileged server-only secret. Never prefix it with `NEXT_PUBLIC_`. Exposing it to the browser would grant unrestricted database access, bypassing all Supabase Row Level Security policies.
+    </Warning>
+
+    <AccordionGroup>
+      <Accordion title="Supabase">
+        | Variable | Description |
+        |---|---|
+        | `NEXT_PUBLIC_SUPABASE_URL` | Your Supabase project URL, e.g. `https://your-project.supabase.co` |
+        | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | The anonymous (public) key from your Supabase project API settings |
+        | `SUPABASE_SERVICE_ROLE_KEY` | The service role key — server-side only, never expose to the browser |
+      </Accordion>
+
+      <Accordion title="AI blog assistant (OpenRouter)">
+        | Variable | Description |
+        |---|---|
+        | `OPENROUTER_API_KEY` | Your OpenRouter API key |
+        | `OPENROUTER_MODEL` | Primary model slug, e.g. `meta-llama/llama-3.3-8b-instruct:free` |
+        | `OPENROUTER_APP_NAME` | Referer label sent with API requests, e.g. `Shreyas Portfolio` |
+        | `NEXT_PUBLIC_SITE_URL` | Your production URL, e.g. `https://shreyas.cloud` — used in the OpenRouter referer header |
+      </Accordion>
+
+      <Accordion title="Contact form">
+        | Variable | Description |
+        |---|---|
+        | `WEB3FORMS_ACCESS_KEY` | Web3Forms access key for backup contact delivery |
+        | `HUNTER_API_KEY` | Hunter.io API key for email validation on the contact endpoint |
+      </Accordion>
+
+      <Accordion title="SMTP / Nodemailer">
+        | Variable | Description |
+        |---|---|
+        | `SMTP_HOST` | SMTP server hostname, e.g. `smtp.your-email-provider.com` |
+        | `SMTP_PORT` | SMTP port, typically `587` for STARTTLS |
+        | `SMTP_USER` | SMTP username / login |
+        | `SMTP_PASS` | SMTP password or app-specific password |
+        | `CONTACT_FROM_EMAIL` | The sender address used in outgoing contact emails |
+      </Accordion>
+    </AccordionGroup>
+
+    <Note>
+      The `OPENROUTER_MODELS` variable (comma-separated fallback list) is optional. Use it if you want automatic model fallback when the primary model returns a 503 from an overloaded upstream provider. Example: `meta-llama/llama-3.3-8b-instruct:free,openrouter/auto`.
+    </Note>
+  </Step>
+
+  <Step title="Deploy">
+    Click **Deploy** in the Vercel dashboard. Vercel will run `next build` and publish the result to its edge network. The first build typically takes 60–90 seconds.
+
+    Once deployed, open the preview URL Vercel provides (e.g. `https://your-project.vercel.app`) and confirm:
+
+    - The hero video loads over HLS
+    - The blog section fetches posts from Supabase
+    - The contact form submits without errors
+    - The skill radar section populates correctly
+
+    <Note>
+      The home page (`app/page.tsx`) exports `export const dynamic = "force-dynamic"`, which opts the entire route out of static generation. This ensures that Supabase data — blog posts and skill radar scores — is always fetched fresh on each request rather than baked into a static HTML snapshot at build time. No additional configuration is required; the setting is already in the source.
+    </Note>
+  </Step>
+
+  <Step title="Set up a custom domain (optional)">
+    1. In your Vercel project, go to **Settings → Domains**.
+    2. Add your domain (e.g. `shreyas.cloud`).
+    3. Vercel will display the DNS records you need to add at your registrar — typically an `A` record for the apex domain and a `CNAME` for the `www` subdomain.
+    4. Once DNS propagates, Vercel automatically provisions a TLS certificate via Let's Encrypt.
+
+    <Tip>
+      Update `NEXT_PUBLIC_SITE_URL` to your custom domain after it is live. This value is used as the OpenRouter referer header and also appears in OpenGraph metadata.
+    </Tip>
+  </Step>
+</Steps>
+
+## Analytics and performance monitoring
+
+Vercel Analytics and Speed Insights are already imported in `app/layout.tsx` — no plugin or additional configuration is required.
+
+```tsx app/layout.tsx
+import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+
+// Inside the root layout body:
+<Analytics />
+<SpeedInsights />
+```
+
+| Package | What it tracks |
+|---|---|
+| `@vercel/analytics` | Page views, unique visitors, referrers, and traffic sources |
+| `@vercel/speed-insights` | Core Web Vitals (LCP, CLS, INP, FID, TTFB) per route |
+
+Both dashboards are accessible from the **Analytics** and **Speed Insights** tabs in your Vercel project.
+
+<Note>
+  The layout also loads Umami Analytics (`cloud.umami.is`) as a lightweight privacy-friendly supplement. If you do not need Umami, remove the `<Script>` block from `app/layout.tsx` — it has no effect on Vercel Analytics or Speed Insights.
+</Note>
+
+## Local development scripts
+
+These are the npm scripts defined in `package.json`:
+
+```bash npm scripts
+npm run dev    # Start the Next.js development server (http://localhost:3000)
+npm run build  # Production build — runs next build
+npm run start  # Serve the production build locally
+npm run lint   # Run next lint for ESLint checks
+```
+
+## Next.js configuration reference
+
+Key settings from `next.config.ts` that affect production behavior:
+
+```ts next.config.ts
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+      {
+        protocol: "https",
+        hostname: "i.ibb.co",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+        pathname: "/**",
+      },
+    ],
+  },
+};
+```
+
+The `trailingSlash: true` setting means all routes resolve with a trailing slash (e.g. `/blogs/`). Vercel handles redirects for this automatically. The `remotePatterns` allowlist permits Next.js `<Image>` to load cover images hosted on Supabase Storage, ImgBB, and Unsplash.

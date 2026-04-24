@@ -1,0 +1,172 @@
+---
+title: "Portfolio architecture and project structure"
+description: "A full map of the Next.js 16 App Router layout, key directories, the content-data → lib → page data flow, and every route the portfolio serves."
+---
+
+The portfolio is a **Next.js 16** application deployed on Vercel. It uses the App Router with server components for data fetching, a flat JSON content layer for all static copy, and Supabase for dynamic data (blogs, likes, skill progress, and contact submissions). The rendering model is deliberately simple: every page is a React Server Component that fetches what it needs at request time, then hands a fully-typed `content` prop down to the client shell.
+
+## Directory tree
+
+```text title="new_portfoliov2/"
+new_portfoliov2/
+├── app/
+│   ├── api/              # Server endpoints (contact, blog APIs)
+│   ├── blogs/            # Dynamic blog routes
+│   ├── privacy/          # Privacy policy page
+│   ├── terms/            # Terms of service page
+│   ├── globals.css       # Design system and global styles
+│   ├── layout.tsx        # Root layout with fonts and analytics
+│   ├── page.tsx          # Home page with structured data
+│   ├── sitemap.ts        # Dynamic sitemap generation
+│   └── robots.ts         # Robots.txt configuration
+├── components/
+│   ├── ui/               # Reusable UI primitives
+│   │   ├── liquid-metal  # WebGL shader button components
+│   │   ├── timeline      # Scroll-driven timeline
+│   │   └── warp-bg       # Perspective beam grid
+│   ├── portfolio-shell   # Main single-page layout
+│   ├── skills-showcase   # Interactive skill radar section
+│   ├── blog-ai-assistant # AI-powered reading companion
+│   ├── testimonials      # Marquee testimonial section
+│   └── ...               # Blog carousel, counters, HLS video
+├── content-data/         # JSON content layer
+│   ├── projects.json     # Featured work entries
+│   ├── skills.json       # Skill categories and progress
+│   ├── timeline.json     # Growth timeline entries
+│   └── ...               # About, education, stats, etc.
+├── lib/                  # Utilities, content loaders, helpers
+├── public/               # Static assets (logo, OG image, hero)
+└── supabase/             # Database schema and client config
+```
+
+## Data flow
+
+Every section of the portfolio traces back through one of two paths: the static JSON content layer for copy and structure, or a live Supabase query for dynamic data (blogs, skill progress, likes). Both paths converge in `app/page.tsx`, which runs the fetches in parallel, then passes the results into `HomePageLoaderShell`.
+
+```text title="Static content path"
+content-data/*.json
+  └── lib/content.ts  (imports all JSON, assembles portfolioContent)
+        └── app/page.tsx  (imports portfolioContent, passes as prop)
+              └── components/home-page-loader-shell  (renders sections)
+```
+
+```text title="Dynamic data path"
+Supabase (blogs table / portfolio_skill_progress)
+  └── lib/blogs.ts + lib/skill-radar.ts  (server-side fetch)
+        └── app/page.tsx  (Promise.all, passes latestPosts + skillCategories)
+              └── components/home-page-loader-shell  (renders sections)
+```
+
+```ts title="app/page.tsx — parallel fetch"
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  const [latestPosts, skillCategories] = await Promise.all([
+    getLatestBlogs(4),
+    getSkillShowcaseCategories(),
+  ]);
+
+  return (
+    <HomePageLoaderShell
+      content={portfolioContent}
+      latestPosts={latestPosts}
+      skillCategories={skillCategories}
+    />
+  );
+}
+```
+
+## Routes
+
+<CardGroup cols={2}>
+  <Card title="Home — /" icon="house">
+    The main single-page experience. Renders hero, about, stats, projects, skills, timeline, testimonials, blogs carousel, and contact in sequence via `HomePageLoaderShell`.
+  </Card>
+  <Card title="Blogs — /blogs" icon="newspaper">
+    Server component that calls `getAllBlogs()` and passes the full post list to `BlogsPageClient`. Dynamic metadata with live post count is generated per request.
+  </Card>
+  <Card title="Blog post — /blogs/[id]" icon="file-text">
+    Dynamic route. Fetches a single post by ID via `getBlogById(id)`, renders the full article, AI reading assistant, like button, and sharing controls.
+  </Card>
+  <Card title="Legal — /privacy, /terms" icon="shield">
+    Static pages served from the app directory. Footer links on every page point to these routes; data sourced from `content-data/footer.json`.
+  </Card>
+</CardGroup>
+
+### API routes
+
+All server endpoints live under `app/api/`. They handle contact form delivery (Nodemailer + Web3Forms), blog like toggling (Supabase), and the AI assistant proxy (OpenRouter).
+
+## Root layout
+
+`app/layout.tsx` is the single root layout. It loads the three-font trio, exports Next.js `Metadata` assembled from `content-data/site-metadata.json`, and appends analytics scripts after the page is interactive.
+
+```ts title="app/layout.tsx — font stack"
+const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-body-source",
+  display: "swap",
+});
+
+const instrumentSerif = Instrument_Serif({
+  subsets: ["latin"],
+  weight: "400",
+  style: "italic",
+  variable: "--font-display-source",
+  display: "swap",
+});
+```
+
+Three analytics layers run in the layout: **Umami** (privacy-friendly, loaded via `next/script` with `afterInteractive`), **Vercel Analytics** (page views), and **Vercel Speed Insights** (Core Web Vitals).
+
+## Next.js configuration
+
+```ts title="next.config.ts"
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  trailingSlash: true,
+  images: {
+    unoptimized: true,
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+      {
+        protocol: "https",
+        hostname: "i.ibb.co",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
+        hostname: "images.unsplash.com",
+        pathname: "/**",
+      },
+    ],
+  },
+};
+```
+
+<Note>
+  `trailingSlash: true` is set globally. All internal links must include the trailing slash, or Next.js will issue a redirect.
+</Note>
+
+## Go deeper
+
+<CardGroup cols={2}>
+  <Card title="Content layer" icon="database" href="/architecture/content-layer">
+    How the JSON files in `content-data/` are structured and loaded by `lib/content.ts`, `lib/blogs.ts`, and `lib/skill-radar.ts`.
+  </Card>
+  <Card title="Supabase schema" icon="table" href="/architecture/supabase-schema">
+    The SQL tables, RLS policies, helper functions, and indexes that back the blog, likes, contacts, and skill radar features.
+  </Card>
+  <Card title="Blog system" icon="rss" href="/features/blog-system">
+    End-to-end walkthrough of how a blog post goes from Supabase row to rendered page with AI assistant and like particle burst.
+  </Card>
+  <Card title="Liquid Metal UI" icon="wand-magic-sparkles" href="/components/liquid-metal">
+    The WebGL shader pipeline behind the metallic button effects and how to drop the component into any section.
+  </Card>
+</CardGroup>

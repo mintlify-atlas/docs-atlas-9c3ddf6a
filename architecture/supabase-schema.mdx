@@ -1,0 +1,336 @@
+---
+title: "Supabase database schema and setup"
+description: "The four tables, two helper functions, RLS policies, performance indexes, and a step-by-step guide for initialising Supabase from a blank project."
+---
+
+The portfolio uses Supabase as its only external database. Four tables live there: `blogs` and `blog_likes` (from `setup.sql`), `contacts` (from `contacts.sql`), and the two skill-radar tables `portfolio_skill_categories` and `portfolio_skill_progress` (from `skill-radar.sql`). Row Level Security is enabled on every table; anonymous reads are permitted where the frontend needs them, and writes are restricted to authenticated or service-role contexts.
+
+## SQL files overview
+
+<Tabs>
+  <Tab title="setup.sql — blogs and likes">
+    Creates the `blogs` table, the `blog_likes` table, two helper SQL functions, and four performance indexes. Also bootstraps Realtime subscriptions for live like-count sync across browser tabs.
+
+    ```sql title="supabase/setup.sql — blogs table"
+    CREATE TABLE IF NOT EXISTS blogs (
+      id TEXT PRIMARY KEY,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      src TEXT,               -- Thumbnail image URL
+      "isAchievement" BOOLEAN DEFAULT FALSE,
+      tags TEXT[] DEFAULT '{}',
+      route TEXT NOT NULL,
+      video TEXT              -- Video URL if applicable
+    );
+    ```
+
+    ```sql title="supabase/setup.sql — blog_likes table"
+    CREATE TABLE IF NOT EXISTS blog_likes (
+      id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      blog_id TEXT NOT NULL REFERENCES blogs(id) ON DELETE CASCADE,
+      session_id TEXT NOT NULL,   -- Browser session ID for non-logged users
+      created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+      UNIQUE(blog_id, session_id)
+    );
+    ```
+  </Tab>
+  <Tab title="contacts.sql — contact submissions">
+    A minimal table that stores inbound contact form submissions. Only the `service_role` can read or manage rows — no anonymous access, so form data is never exposed to the public Supabase client.
+
+    ```sql title="supabase/contacts.sql"
+    CREATE TABLE IF NOT EXISTS public.contacts (
+      id BIGSERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      message TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    ALTER TABLE public.contacts ENABLE ROW LEVEL SECURITY;
+
+    CREATE POLICY "Allow service role to manage contacts"
+    ON public.contacts
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+    ```
+  </Tab>
+  <Tab title="skill-radar.sql — skill categories and progress">
+    Creates `portfolio_skill_categories` and `portfolio_skill_progress`, seeds all six categories and 31 skill rows with progress values, and sets up auto-update triggers for `updated_at`.
+
+    ```sql title="supabase/skill-radar.sql — portfolio_skill_categories"
+    CREATE TABLE IF NOT EXISTS public.portfolio_skill_categories (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      title TEXT NOT NULL,
+      emoji TEXT NOT NULL,
+      description TEXT NOT NULL,
+      accent_from TEXT NOT NULL,
+      accent_to TEXT NOT NULL,
+      glow TEXT NOT NULL,
+      sort_order INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+    );
+    ```
+
+    ```sql title="supabase/skill-radar.sql — portfolio_skill_progress"
+    CREATE TABLE IF NOT EXISTS public.portfolio_skill_progress (
+      slug TEXT PRIMARY KEY,
+      category_id TEXT NOT NULL
+        REFERENCES public.portfolio_skill_categories(id) ON DELETE CASCADE,
+      label TEXT NOT NULL,
+      icon_key TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      progress SMALLINT NOT NULL CHECK (progress BETWEEN 0 AND 100),
+      sort_order INTEGER NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW()),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT TIMEZONE('utc', NOW())
+    );
+    ```
+  </Tab>
+</Tabs>
+
+## RLS policies
+
+<AccordionGroup>
+  <Accordion title="blogs — public read, authenticated write">
+    ```sql
+    -- Everyone can read blogs
+    CREATE POLICY "Allow public read access on blogs"
+      ON blogs FOR SELECT
+      TO anon, authenticated
+      USING (true);
+
+    -- Only authenticated users can insert
+    CREATE POLICY "Allow authenticated insert on blogs"
+      ON blogs FOR INSERT
+      TO authenticated
+      WITH CHECK (true);
+
+    -- Only authenticated users can update
+    CREATE POLICY "Allow authenticated update on blogs"
+      ON blogs FOR UPDATE
+      TO authenticated
+      USING (true)
+      WITH CHECK (true);
+    ```
+  </Accordion>
+
+  <Accordion title="blog_likes — fully public (session-guarded in application)">
+    ```sql
+    -- Everyone can read likes
+    CREATE POLICY "Allow public read access on blog_likes"
+      ON blog_likes FOR SELECT
+      TO anon, authenticated
+      USING (true);
+
+    -- Everyone can insert (session deduplication via UNIQUE constraint)
+    CREATE POLICY "Allow public insert on blog_likes"
+      ON blog_likes FOR INSERT
+      TO anon, authenticated
+      WITH CHECK (true);
+
+    -- Everyone can delete (application checks session_id before deleting)
+    CREATE POLICY "Allow public delete on blog_likes"
+      ON blog_likes FOR DELETE
+      TO anon, authenticated
+      USING (true);
+    ```
+
+    <Note>
+      The `UNIQUE(blog_id, session_id)` constraint on `blog_likes` is the hard database-level guard against duplicate likes. The application also checks `session_id` before issuing an insert or delete, but the constraint is the reliable enforcement layer.
+    </Note>
+  </Accordion>
+
+  <Accordion title="contacts — service_role only">
+    ```sql
+    CREATE POLICY "Allow service role to manage contacts"
+    ON public.contacts
+    FOR ALL
+    TO service_role
+    USING (true)
+    WITH CHECK (true);
+    ```
+
+    The contact API route uses the service-role key (server-only, never exposed to the browser) when inserting rows. The anon key used by the frontend cannot read or write this table.
+  </Accordion>
+
+  <Accordion title="portfolio_skill_categories and portfolio_skill_progress">
+    ```sql
+    -- Public read for both tables
+    CREATE POLICY "portfolio_skill_categories_public_read"
+    ON public.portfolio_skill_categories
+    FOR SELECT TO anon, authenticated USING (true);
+
+    CREATE POLICY "portfolio_skill_progress_public_read"
+    ON public.portfolio_skill_progress
+    FOR SELECT TO anon, authenticated USING (true);
+
+    -- Authenticated users can manage both tables (for dashboard edits)
+    CREATE POLICY "portfolio_skill_categories_authenticated_write"
+    ON public.portfolio_skill_categories
+    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+    CREATE POLICY "portfolio_skill_progress_authenticated_write"
+    ON public.portfolio_skill_progress
+    FOR ALL TO authenticated USING (true) WITH CHECK (true);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## SQL helper functions
+
+Both functions are called by the blog API route to return like state for a given session without exposing raw row data.
+
+```sql title="supabase/setup.sql — get_blog_likes_count"
+CREATE OR REPLACE FUNCTION get_blog_likes_count(blog_id_param TEXT)
+RETURNS INTEGER AS $$
+BEGIN
+  RETURN (SELECT COUNT(*) FROM blog_likes WHERE blog_id = blog_id_param);
+END;
+$$ LANGUAGE plpgsql;
+```
+
+```sql title="supabase/setup.sql — has_session_liked"
+CREATE OR REPLACE FUNCTION has_session_liked(blog_id_param TEXT, session_id_param TEXT)
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM blog_likes
+    WHERE blog_id = blog_id_param AND session_id = session_id_param
+  );
+END;
+$$ LANGUAGE plpgsql;
+```
+
+## Auto-update trigger (skill-radar)
+
+The skill-radar tables use a trigger to keep `updated_at` accurate on every row update without requiring application-side logic.
+
+```sql title="supabase/skill-radar.sql — updated_at trigger"
+CREATE OR REPLACE FUNCTION public.set_portfolio_skill_updated_at()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  new.updated_at = TIMEZONE('utc', NOW());
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER portfolio_skill_categories_set_updated_at
+BEFORE UPDATE ON public.portfolio_skill_categories
+FOR EACH ROW EXECUTE FUNCTION public.set_portfolio_skill_updated_at();
+
+CREATE TRIGGER portfolio_skill_progress_set_updated_at
+BEFORE UPDATE ON public.portfolio_skill_progress
+FOR EACH ROW EXECUTE FUNCTION public.set_portfolio_skill_updated_at();
+```
+
+## Performance indexes
+
+```sql title="supabase/setup.sql — indexes"
+CREATE INDEX IF NOT EXISTS idx_blog_likes_blog_id   ON blog_likes(blog_id);
+CREATE INDEX IF NOT EXISTS idx_blog_likes_session_id ON blog_likes(session_id);
+CREATE INDEX IF NOT EXISTS idx_blogs_created_at      ON blogs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_blogs_category        ON blogs(category);
+```
+
+```sql title="supabase/skill-radar.sql — indexes"
+CREATE UNIQUE INDEX IF NOT EXISTS portfolio_skill_categories_sort_order_uidx
+  ON public.portfolio_skill_categories (sort_order);
+
+CREATE UNIQUE INDEX IF NOT EXISTS portfolio_skill_progress_category_sort_uidx
+  ON public.portfolio_skill_progress (category_id, sort_order);
+
+CREATE INDEX IF NOT EXISTS portfolio_skill_progress_category_idx
+  ON public.portfolio_skill_progress (category_id);
+```
+
+<Tip>
+  The `idx_blogs_created_at DESC` index directly supports the `ORDER BY created_at DESC` query used by `getLatestBlogs()` and `getAllBlogs()`. Without it, every blog listing request would trigger a full table scan.
+</Tip>
+
+## Supabase client
+
+The browser-side client is a lazy singleton in `supabase/client.ts`. It reads credentials from `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`, which are safe to expose to the browser because RLS enforces access on the database side.
+
+```ts title="supabase/client.ts"
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+let _supabase: SupabaseClient | null = null;
+
+export function getSupabaseClient(): SupabaseClient | null {
+  if (_supabase) return _supabase;
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) return null;
+
+  _supabase = createClient(supabaseUrl, supabaseAnonKey);
+  return _supabase;
+}
+
+export const supabase = getSupabaseClient();
+```
+
+The server-side loaders in `lib/blogs.ts` and `lib/skill-radar.ts` instantiate their own client with `autoRefreshToken: false` and `persistSession: false` to avoid leaking session state across server requests.
+
+## Set up Supabase from scratch
+
+<Steps>
+  <Step title="Create a new Supabase project">
+    Go to [supabase.com](https://supabase.com), create a new project, choose a region close to your Vercel deployment, and wait for provisioning to finish.
+  </Step>
+  <Step title="Run setup.sql">
+    In the Supabase dashboard, open **SQL Editor** and paste the full contents of `supabase/setup.sql`. Click **Run**. This creates the `blogs` and `blog_likes` tables, the two helper functions, all four indexes, and enables Realtime for both tables.
+  </Step>
+  <Step title="Run contacts.sql">
+    Still in the SQL Editor, paste and run `supabase/contacts.sql`. This creates the `contacts` table with the service-role-only policy.
+  </Step>
+  <Step title="Run skill-radar.sql">
+    Paste and run `supabase/skill-radar.sql`. This creates `portfolio_skill_categories` and `portfolio_skill_progress`, seeds all six categories and 31 skills with default progress values, and sets up the updated-at triggers and RLS policies.
+  </Step>
+  <Step title="Copy your credentials">
+    In **Project Settings → API**, copy the **Project URL** and the **anon public** key. Add them to your `.env.local`:
+
+    ```bash title=".env.local"
+    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+    ```
+
+    For the contact form API route, also add the **service_role** key as a server-only variable (no `NEXT_PUBLIC_` prefix):
+
+    ```bash title=".env.local"
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+    ```
+  </Step>
+  <Step title="Verify the connection">
+    Start the dev server with `npm run dev` and navigate to the blogs page. If blog posts appear (or the page loads without errors when the table is empty), the connection is working correctly.
+  </Step>
+</Steps>
+
+## Seed categories reference
+
+| id | title | emoji | sort_order | accent colors |
+|---|---|---|---|---|
+| `top-tier` | Core Strengths | 💥 | 10 | `#ff8a5b` → `#ffd166` |
+| `development-skills` | Development Skills | 💻 | 20 | `#60a5fa` → `#22d3ee` |
+| `ai-skills` | AI Skills | 🤖 | 30 | `#2dd4bf` → `#06b6d4` |
+| `programming` | Programming | ⚙️ | 40 | `#4ade80` → `#22c55e` |
+| `core-cs` | Core CS | 🧠 | 50 | `#fb923c` → `#ef4444` |
+| `tools` | Tools | 🛠 | 60 | `#cbd5e1` → `#7c3aed` |
+
+To update a skill's live progress value, run a direct update in the SQL Editor or use the Supabase table editor:
+
+```sql
+UPDATE public.portfolio_skill_progress
+SET progress = 95
+WHERE slug = 'prompt-engineering';
+```
+
+The change takes effect on the next page request — no redeployment needed.

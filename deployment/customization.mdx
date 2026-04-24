@@ -1,0 +1,416 @@
+---
+title: "Customize the portfolio for your own use"
+description: "Fork Shreyas Portfolio v2 and adapt every section — personal info, projects, skills, timeline, colors, fonts, and social links — for your own brand."
+---
+
+The portfolio is designed to be forked and personalized without touching the React component layer. Almost every visible section — name, bio, projects, skills, timeline entries, stats, and social links — is driven by JSON files in the `content-data/` directory. The component layer reads this data through `lib/content.ts` and renders it at runtime. For most customizations, you only need to edit JSON.
+
+<Tip>
+  The `content-data/` JSON layer is the single source of truth for all portfolio content. You can update your name, projects, skills, and social links without writing any React or TypeScript. Changes to these files are picked up on the next build or hot-reload cycle in development.
+</Tip>
+
+## Fork and personalize
+
+<Steps>
+  <Step title="Fork the repository">
+    Fork [SmartKidzee/new_portfoliov2](https://github.com/SmartKidzee/new_portfoliov2) on GitHub, then clone your fork:
+
+    ```bash clone your fork
+    git clone https://github.com/<your-username>/new_portfoliov2.git
+    cd new_portfoliov2
+    npm install
+    ```
+  </Step>
+
+  <Step title="Copy the environment file">
+    ```bash set up environment
+    cp .env.example .env.local
+    ```
+
+    Fill in your own Supabase project credentials, OpenRouter API key, and SMTP details. See the [Vercel deployment guide](/deployment/vercel) for a full variable reference.
+  </Step>
+
+  <Step title="Edit the JSON content files">
+    Work through the accordion sections below to update each content area. All files live in `content-data/`.
+  </Step>
+
+  <Step title="Replace static assets">
+    Swap out the following files in `public/` with your own:
+
+    | File | Purpose |
+    |---|---|
+    | `logo.png` | Site logo used in the navbar and Apple touch icon |
+    | `og-image.jpg` | Open Graph / Twitter card image (1200 × 630 px) |
+    | `hero_image.png` | Used in JSON-LD `Person` structured data |
+    | `icon.ico` | Browser tab favicon |
+
+    The hero portrait image is loaded from a remote URL defined in `content-data/home.json` — update the `portrait.src` value there rather than replacing a local file.
+  </Step>
+
+  <Step title="Start the development server and verify">
+    ```bash local preview
+    npm run dev
+    ```
+
+    Open `http://localhost:3000` and confirm every section reflects your data before deploying.
+  </Step>
+</Steps>
+
+## Content areas
+
+<AccordionGroup>
+  <Accordion title="Personal info — about.json, site-metadata.json, home.json">
+    Three files control how you are introduced across the site.
+
+    **`content-data/about.json`** — the bio text in the About section:
+
+    ```json content-data/about.json
+    {
+      "content": {
+        "title": "About Me",
+        "paragraphs": [
+          "I'm Shreyas, a Sophomore Computer Science and Engineering undergraduate at The National Institute of Engineering, Mysuru, specializing in Artificial Intelligence and Machine Learning.",
+          "I'm passionate about technology and enjoy diving deep into the ever-evolving world of AI and software development. When I'm not exploring the latest tech trends, you'll find me creating content for my YouTube channel, sharing insights as an Apple fanboy, or gaming on my PS5.",
+          "This website is built with Vite, React, and TypeScript, designed for speed, flexibility, and a modern experience."
+        ],
+        "profileMedia": {
+          "src": "/about-me.JPEG",
+          "alt": "Tech",
+          "variant": "tilted-card"
+        }
+      }
+    }
+    ```
+
+    Replace the `paragraphs` array with your own bio copy. Update `profileMedia.src` to point to your profile image (place it in `public/` and use a root-relative path, or use an absolute HTTPS URL).
+
+    **`content-data/site-metadata.json`** — SEO title, description, canonical URL, and JSON-LD structured data:
+
+    ```json content-data/site-metadata.json
+    {
+      "content": {
+        "title": "Shreyas J",
+        "description": "Shreyas J builds AI systems, full-stack products, and polished web experiences from Mysuru, combining engineering craft with projects-first learning.",
+        "keywords": ["Shreyas", "ai systems", "React", "TypeScript", "web development", "portfolio"],
+        "canonicalUrl": "https://shreyas.cloud",
+        "personStructuredData": {
+          "name": "Shreyas J",
+          "jobTitle": "AI Systems & Full-Stack Builder",
+          "description": "...",
+          "imageUrl": "https://shreyas.cloud/hero_image.png",
+          "sameAsLinks": [
+            "https://github.com/SmartKidzee",
+            "https://linkedin.com/in/smartshreyas",
+            "https://twitter.com/kidzeesmart",
+            "https://instagram.com/smartkidzee"
+          ]
+        }
+      }
+    }
+    ```
+
+    Update `title`, `description`, `keywords`, `canonicalUrl`, and all `personStructuredData` fields with your own details.
+
+    **`content-data/home.json`** — the hero section headline, intro line, portrait, and tech strip:
+
+    ```json content-data/home.json
+    {
+      "content": {
+        "headline": ["BUILDING", "THE", "FUTURE"],
+        "intro": "I design and ship AI-first products with strong frontend craft, reliable backend integrations, and a builder mindset focused on real deployment.",
+        "visionStatement": "CODE THAT SPEAKS YOUR VISION",
+        "portrait": {
+          "src": "https://i.ibb.co/B55KFGh2/IMG-1106.jpg",
+          "alt": "Shreyas",
+          "loading": "eager"
+        },
+        "techStrip": [
+          "Responsive Web Design",
+          "API Integration",
+          "AI System Design",
+          "DevOps"
+        ]
+      }
+    }
+    ```
+
+    Update `headline` (3-line stacked text), `intro`, `visionStatement`, and `portrait.src` with your own content. The `techStrip` array renders as a scrolling label strip below the hero text — add or remove items as needed.
+  </Accordion>
+
+  <Accordion title="Projects — projects.json">
+    Each entry in `content-data/projects.json` produces a card in the Featured Work section. The full shape of a project entry is:
+
+    ```json content-data/projects.json (single entry)
+    {
+      "id": "talk2job",
+      "slug": "talk2job",
+      "name": "Talk2Job",
+      "tagline": "AI-powered voice interview practice",
+      "summary": "A voice-first interview simulator that gives instant AI feedback to help users practice, improve clarity, and build confidence.",
+      "description": "Talk2Job is a personal web application for interview preparation through spoken practice sessions.",
+      "status": "Launched",
+      "featured": true,
+      "projectType": "personal",
+      "category": "ai-web-app",
+      "platform": "web",
+      "stack": {
+        "primary": ["Next.js", "VAPI", "Firebase", "Google Gemini"],
+        "supporting": ["Tailwind CSS", "Vercel"]
+      },
+      "highlights": [
+        "Voice-based interview practice sessions",
+        "Real-time AI responses and coaching",
+        "Confidence-focused speaking feedback"
+      ],
+      "links": {
+        "live": "https://talk2job.vercel.app",
+        "repository": "https://github.com/SmartKidzee/talk2job"
+      },
+      "media": {
+        "coverImage": "https://ebxdddejgcqfxcjfgokn.supabase.co/storage/v1/object/public/site-images/screenshot.png",
+        "screenshots": [
+          {
+            "label": "Talk2Job live preview",
+            "src": "https://..."
+          }
+        ]
+      }
+    }
+    ```
+
+    Key fields to customize:
+
+    | Field | Notes |
+    |---|---|
+    | `name` / `tagline` / `summary` | Shown in the project card |
+    | `status` | Pill label on the card — e.g. `"Launched"`, `"Active"`, `"Building Now"` |
+    | `featured` | Set to `true` to include the project in the rendered section |
+    | `stack.primary` | Up to 4 items rendered as tech tags |
+    | `links.live` | If it matches `shreyas.cloud`, the card links to the repository instead |
+    | `media.coverImage` | Absolute HTTPS URL; Supabase Storage and ImgBB are pre-allowlisted in `next.config.ts` |
+
+    Update `projectCount` at the top of the file when you add or remove entries.
+  </Accordion>
+
+  <Accordion title="Skills — skills.json">
+    `content-data/skills.json` organizes skills into categories. Each category renders as a tab in the Skills Showcase section. The schema for a single skill entry is:
+
+    ```json skill entry shape
+    {
+      "slug": "frontend-engineering",
+      "label": "Frontend Engineering (React, Next.js)",
+      "defaultProgress": 88
+    }
+    ```
+
+    | Field | Type | Description |
+    |---|---|---|
+    | `slug` | string | Unique identifier, kebab-case |
+    | `label` | string | Display name shown in the skill list |
+    | `defaultProgress` | number (0–100) | Initial progress bar value before any live Supabase override |
+
+    A full category entry looks like this:
+
+    ```json content-data/skills.json (category)
+    {
+      "id": "top-tier",
+      "label": "Category 1",
+      "title": "Core Strengths",
+      "emoji": "💥",
+      "description": "The skills I naturally lean on when I need to design, build, and ship a product end to end without losing polish.",
+      "previewTags": ["Product thinking", "Execution", "Shipping loop"],
+      "skills": [
+        { "slug": "full-stack-product-thinking", "label": "Full Stack Product Thinking", "defaultProgress": 87 },
+        { "slug": "ai-product-development", "label": "AI Product Development", "defaultProgress": 89 }
+      ]
+    }
+    ```
+
+    Add, remove, or rename categories and skills freely. The `schemaVersion` field at the top of the file tracks the data contract version — increment it when you make structural changes.
+  </Accordion>
+
+  <Accordion title="Timeline — timeline.json">
+    The scroll-driven timeline in the Learning Timeline section is powered by `content-data/timeline.json`. Each entry represents a year in your journey. The shape of a single entry is:
+
+    ```json timeline entry shape
+    {
+      "year": "2024",
+      "phase": "Execution Mode",
+      "belief": "I need to learn everything first",
+      "learned": "Build, learn, repeat",
+      "change": "Started real projects like Talk2Job"
+    }
+    ```
+
+    | Field | Description |
+    |---|---|
+    | `year` | Displayed as the timeline marker label |
+    | `phase` | Name for this stage of growth |
+    | `belief` | The mindset you held at the time |
+    | `learned` | The insight or realization from that period |
+    | `change` | The concrete action or shift that resulted |
+
+    Replace the existing entries with your own year-by-year story. Entries are rendered in the order they appear in the array, so keep them chronological.
+  </Accordion>
+
+  <Accordion title="Experience and education — experience.json, education.json">
+    **`content-data/experience.json`** renders a milestone timeline in the Experience section. Each entry represents a career or life milestone:
+
+    ```json experience entry shape
+    {
+      "role": "2024 - Entered Engineering & Web Dev",
+      "startDate": "2024",
+      "endDate": "2024",
+      "company": null,
+      "location": null,
+      "link": "https://github.com/SmartKidzee",
+      "iconLabel": "GitHub",
+      "achievements": [
+        "Started college at NIE Mysore and developed my first website using HTML & CSS.",
+        "GitHub: SmartKidzee"
+      ],
+      "skills": []
+    }
+    ```
+
+    **`content-data/education.json`** renders the Education section. Each institution entry has this shape:
+
+    ```json education entry shape
+    {
+      "institution": "The National Institute of Engineering, Mysuru",
+      "credential": "Bachelor of Engineering - BE, Computer Science (Specialisation in AI & ML)",
+      "period": "Sep 2024 - Jul 2028",
+      "activities": ["Alpha Innovation & Tinkerer's Lab (AITL)"],
+      "metrics": {
+        "cgpa": "9.33"
+      }
+    }
+    ```
+
+    Update `institution`, `credential`, `period`, and `metrics` with your own academic history. For the `metrics` field, use either `cgpa` or `percentage` depending on what applies.
+  </Accordion>
+
+  <Accordion title="Blog content — Supabase dashboard">
+    Blog posts are stored in your Supabase database, not in flat files. To publish a new post:
+
+    1. Open your Supabase project dashboard and navigate to the **Table Editor**.
+    2. Select the `blogs` table (created by `supabase/setup.sql`).
+    3. Click **Insert row** and fill in the required fields: `title`, `category`, `content` (markdown body), `route` (e.g. `/blogs/my-slug`), and optionally `src` (thumbnail URL), `tags`, `video`, and `isAchievement`.
+    4. The blog carousel on the home page fetches the latest 4 posts via `lib/blogs.ts` on each request — no rebuild needed.
+
+    <Note>
+      Because `app/page.tsx` sets `export const dynamic = "force-dynamic"`, new blog posts appear on the home page immediately after publishing in Supabase, without triggering a new deployment.
+    </Note>
+
+    The AI blog assistant uses your `OPENROUTER_API_KEY` and `OPENROUTER_MODEL` to generate post summaries and answer reader questions. Ensure these environment variables are set in Vercel for the feature to work in production.
+  </Accordion>
+
+  <Accordion title="Colors and fonts — globals.css and layout.tsx">
+    The design system is defined in two files.
+
+    **`app/globals.css`** — CSS custom properties for the color palette:
+
+    ```css app/globals.css
+    :root {
+      --bg: 0 0% 4%;          /* Near-black background */
+      --surface: 0 0% 8%;     /* Card / panel background */
+      --text: 0 0% 96%;       /* Primary text */
+      --muted: 0 0% 53%;      /* Secondary / muted text */
+      --stroke: 0 0% 12%;     /* Border color */
+      --accent: 0 0% 96%;     /* Accent (matches text in the dark theme) */
+    }
+    ```
+
+    The blue accent used for scrollbars, gradient rings, and skill progress bars is `#89aacc` (light steel blue) and `#4e85bf` (medium blue). To change the accent color, find all occurrences of these hex values in `globals.css` and replace them with your preferred hue.
+
+    **`app/layout.tsx`** — Google Fonts loaded via `next/font/google`:
+
+    ```tsx app/layout.tsx
+    import { Inter, Instrument_Serif, Geist } from "next/font/google";
+
+    const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
+
+    const inter = Inter({
+      subsets: ["latin"],
+      variable: "--font-body-source",
+      display: "swap",
+    });
+
+    const instrumentSerif = Instrument_Serif({
+      subsets: ["latin"],
+      weight: "400",
+      style: "italic",
+      variable: "--font-display-source",
+      display: "swap",
+    });
+    ```
+
+    | Variable | Role | Current font |
+    |---|---|---|
+    | `--font-sans` | UI elements via Geist | Geist |
+    | `--font-body-source` | Body copy | Inter |
+    | `--font-display-source` | Italic display headings | Instrument Serif |
+
+    To swap a font, replace the import and instantiation with any other font exported from `next/font/google`, keeping the same CSS variable name.
+  </Accordion>
+
+  <Accordion title="Social links — footer.json and contact.json">
+    Social links appear in two places: the footer and the contact section sidebar.
+
+    **`content-data/footer.json`** — copyright line and legal navigation:
+
+    ```json content-data/footer.json
+    {
+      "content": {
+        "copyright": "© 2026 Shreyas J. All rights reserved.",
+        "links": [
+          { "label": "Terms & Conditions", "href": "/terms" },
+          { "label": "Privacy Policy", "href": "/privacy" }
+        ]
+      }
+    }
+    ```
+
+    Update `copyright` with your name and year.
+
+    **`content-data/contact.json`** — the social links rendered alongside the contact form:
+
+    ```json content-data/contact.json (socialLinks)
+    {
+      "content": {
+        "socialLinks": [
+          { "label": "GitHub", "url": "https://github.com/SmartKidzee" },
+          { "label": "YouTube", "url": "https://youtube.com/SmartKidzee" },
+          { "label": "LinkedIn", "url": "https://www.linkedin.com/in/smartshreyas/" },
+          { "label": "X (Twitter)", "url": "https://x.com/KidzeeSmart" }
+        ]
+      }
+    }
+    ```
+
+    Replace the `url` values with your own profile URLs. You can add or remove entries — the component iterates over the array and renders a link for each one.
+
+    <Note>
+      The `sameAsLinks` array in `content-data/site-metadata.json` independently feeds the JSON-LD `Person` structured data for search engines. Update it in parallel with `contact.json` to keep your social presence consistent across the visible UI and machine-readable metadata.
+    </Note>
+  </Accordion>
+</AccordionGroup>
+
+## Stats section
+
+The animated counters in the Impact Snapshot section are driven by `content-data/stats.json`:
+
+```json content-data/stats.json
+{
+  "content": {
+    "items": [
+      { "value": 3, "label": "Projects Engineered", "suffix": "+", "caption": "Real-world AI & Full Stack Apps", "decimals": 0 },
+      { "value": 100, "label": "Self-driven Learning", "suffix": "%", "caption": "Projects-first approach", "decimals": 0 },
+      { "value": 9.3, "label": "Current CGPA", "suffix": "+", "caption": "Academic Consistency", "decimals": 1 },
+      { "value": 2028, "label": "CSE @ NIE Mysuru", "prefix": "Class of ", "caption": "AI & ML Focus", "decimals": 0, "useGrouping": false }
+    ]
+  }
+}
+```
+
+Each item accepts `value`, `label`, `caption`, an optional `prefix`, an optional `suffix`, `decimals` for decimal places, and `useGrouping` to control whether thousands separators appear. Replace the values and labels with your own metrics.

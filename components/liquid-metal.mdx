@@ -1,0 +1,248 @@
+---
+title: "Liquid Metal button: WebGL shader effects"
+description: "Real-time WebGL metallic shader buttons, links, and badges with configurable color, speed, distortion, and scale via @paper-design/shaders-react."
+---
+
+`LiquidMetal` is a family of interactive surface components that render a live WebGL metallic shader directly inside the element border. The shader animates a flowing, light-refractive metal surface using chromatic aberration, repeating waveforms, and layered distortion — all configurable through props. Three ready-to-use variants are exported: `LiquidMetalButton` (a `<button>`), `LiquidMetalLink` (an `<a>`), and `LiquidMetalBadge` (a `<div>`). All three share the same visual face and prop surface, differing only in the underlying HTML element and semantics.
+
+In the portfolio shell, `LiquidMetalButton` drives the primary hero CTAs ("See Works", "Reach out") and `LiquidMetalLink` powers every navigation and project link that needs a tactile, premium feel.
+
+<Note>
+  The WebGL canvas rendered by `@paper-design/shaders-react` requires a browser with WebGL 2 support. All modern browsers (Chrome 56+, Firefox 51+, Safari 15+, Edge 79+) support WebGL 2. On devices or environments where WebGL is unavailable (some older Android WebViews, certain server-side render contexts), the shader canvas will not render and the button will show only its dark inner face.
+</Note>
+
+---
+
+## TypeScript interface
+
+```typescript components/ui/liquid-metal.tsx
+// Base shader wrapper
+export interface LiquidMetalProps {
+  colorBack?: string;      // Background metal color (hex)
+  colorTint?: string;      // Highlight/tint color (hex)
+  speed?: number;          // Animation speed multiplier
+  repetition?: number;     // Waveform repetition count
+  distortion?: number;     // Distortion intensity
+  scale?: number;          // Shader zoom scale
+  className?: string;
+  style?: CSSProperties;
+}
+
+// Shared props for all three action variants
+type SharedActionProps = {
+  children: ReactNode;
+  icon?: ReactNode;
+  borderWidth?: number;
+  metalConfig?: Omit<LiquidMetalProps, "className" | "style">;
+  size?: "sm" | "md" | "lg";
+  className?: string;
+  innerClassName?: string;
+  labelClassName?: string;
+};
+
+// Button — extends ButtonHTMLAttributes<HTMLButtonElement>
+export interface LiquidMetalButtonProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">,
+    SharedActionProps {}
+
+// Link — extends AnchorHTMLAttributes<HTMLAnchorElement>
+export interface LiquidMetalLinkProps
+  extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "children">,
+    SharedActionProps {}
+
+// Badge — extends HTMLAttributes<HTMLDivElement>
+export interface LiquidMetalBadgeProps
+  extends Omit<HTMLAttributes<HTMLDivElement>, "children">,
+    SharedActionProps {}
+```
+
+---
+
+## Props
+
+### `LiquidMetal` (shader wrapper)
+
+<ParamField path="colorBack" type="string" default="#aaaaac">
+  The base metal background color rendered by the WebGL shader, expressed as a CSS hex string (e.g. `"#6c7e94"`). Controls the overall dark tone of the metallic surface.
+</ParamField>
+
+<ParamField path="colorTint" type="string" default="#ffffff">
+  The highlight and specular tint color applied over the metal surface. Lighter values (e.g. `"#f4fbff"`) produce a cooler, chrome-like sheen.
+</ParamField>
+
+<ParamField path="speed" type="number" default="0.5">
+  Animation playback speed multiplier for the flowing shader. Lower values (e.g. `0.32`) produce a slow, liquid pour; higher values create rapid rippling.
+</ParamField>
+
+<ParamField path="repetition" type="number" default="4">
+  Number of times the waveform pattern repeats across the surface. Higher values produce a finer, more textured grain.
+</ParamField>
+
+<ParamField path="distortion" type="number" default="0.1">
+  Intensity of the surface distortion warp. `0` is perfectly smooth; values around `0.12–0.15` give a natural flowing metal feel without becoming illegible.
+</ParamField>
+
+<ParamField path="scale" type="number" default="1">
+  Zoom scale applied to the shader canvas. Values above `1` crop into the pattern for a close-up texture; values below `1` show more of the repeating waveform.
+</ParamField>
+
+<ParamField path="className" type="string">
+  Additional Tailwind or custom CSS classes applied to the wrapper `<div>`.
+</ParamField>
+
+<ParamField path="style" type="CSSProperties">
+  Inline styles applied to the wrapper `<div>`.
+</ParamField>
+
+---
+
+### `LiquidMetalButton` / `LiquidMetalLink` / `LiquidMetalBadge`
+
+All three variants share the props below in addition to their native HTML element attributes.
+
+<ParamField path="children" type="ReactNode" required>
+  Label text or content rendered inside the pill face. Wrapped in a `<span>` with `font-medium tracking-[0.01em] text-white`.
+</ParamField>
+
+<ParamField path="icon" type="ReactNode">
+  Optional icon rendered to the left of the label inside a circular icon container. Pass any React element — Lucide icons, SVGs, or custom components all work.
+</ParamField>
+
+<ParamField path="borderWidth" type="number" default="2">
+  Width in pixels of the live metal border that rings the inner dark pill. Increasing this value makes the metallic ring more prominent.
+</ParamField>
+
+<ParamField path="metalConfig" type="Omit<LiquidMetalProps, 'className' | 'style'>">
+  Override any of the shader parameters (`colorBack`, `colorTint`, `speed`, `repetition`, `distortion`, `scale`) for this specific instance. The face uses these defaults when `metalConfig` is omitted: `colorBack: "#6c7e94"`, `colorTint: "#f4fbff"`, `speed: 0.32`, `repetition: 4`, `distortion: 0.12`.
+</ParamField>
+
+<ParamField path="size" type='"sm" | "md" | "lg"' default='"md"'>
+  Controls padding, minimum height, gap, and font size of the pill. `LiquidMetalBadge` defaults to `"sm"`.
+
+  | Size | Min height | Padding      | Font size         |
+  |------|-----------|--------------|-------------------|
+  | `sm` | 40px      | 8px 12px     | `text-sm`         |
+  | `md` | 48px      | 12px 16px    | `text-sm` / `text-base` (md+) |
+  | `lg` | 56px      | 16px 20px    | `text-base` / `text-lg` (md+) |
+</ParamField>
+
+<ParamField path="className" type="string">
+  Classes applied to the outermost element (`<button>`, `<a>`, or `<div>`). Use this for positioning, width constraints, or display overrides.
+</ParamField>
+
+<ParamField path="innerClassName" type="string">
+  Classes applied to the inner dark pill `<div>` that sits above the metal border layer. Use to override the background gradient or justify content.
+</ParamField>
+
+<ParamField path="labelClassName" type="string">
+  Classes applied to the `<span>` wrapping `children`. Use to adjust typography, truncation, or color of the label text.
+</ParamField>
+
+---
+
+## Usage examples
+
+<CodeGroup>
+
+```tsx Button (hero CTA)
+import { LiquidMetalButton } from "@/components/ui/liquid-metal";
+import { ArrowRight } from "lucide-react";
+
+const accentMetalConfig = {
+  colorBack: "#86a9cc",
+  colorTint: "#ffffff",
+  speed: 0.32,
+  repetition: 5,
+  distortion: 0.14,
+  scale: 1,
+};
+
+export function HeroCTA() {
+  return (
+    <LiquidMetalButton
+      type="button"
+      size="md"
+      borderWidth={2}
+      metalConfig={accentMetalConfig}
+      icon={<ArrowRight className="h-4 w-4" />}
+      onClick={() => document.getElementById("work")?.scrollIntoView()}
+    >
+      See Works
+    </LiquidMetalButton>
+  );
+}
+```
+
+```tsx Link (navigation)
+import { LiquidMetalLink } from "@/components/ui/liquid-metal";
+import { ArrowUpRight } from "lucide-react";
+
+const defaultMetalConfig = {
+  colorBack: "#6f839a",
+  colorTint: "#f7fbff",
+  speed: 0.34,
+  repetition: 4,
+  distortion: 0.12,
+  scale: 1,
+};
+
+export function NavContactLink() {
+  return (
+    <LiquidMetalLink
+      href="#contact"
+      size="sm"
+      borderWidth={2}
+      metalConfig={defaultMetalConfig}
+      icon={<ArrowUpRight className="h-3.5 w-3.5" />}
+    >
+      Say hi
+    </LiquidMetalLink>
+  );
+}
+```
+
+```tsx Badge (static label)
+import { LiquidMetalBadge } from "@/components/ui/liquid-metal";
+
+export function StatusBadge() {
+  return (
+    <LiquidMetalBadge size="sm" borderWidth={1}>
+      Available for work
+    </LiquidMetalBadge>
+  );
+}
+```
+
+</CodeGroup>
+
+---
+
+## Integration in the portfolio shell
+
+The portfolio shell defines two named `metalConfig` presets and applies them consistently:
+
+```typescript components/portfolio-shell.tsx
+const defaultMetalConfig = {
+  colorBack: "#6f839a",
+  colorTint: "#f7fbff",
+  speed: 0.34,
+  repetition: 4,
+  distortion: 0.12,
+  scale: 1,
+};
+
+const accentMetalConfig = {
+  colorBack: "#86a9cc",
+  colorTint: "#ffffff",
+  speed: 0.32,
+  repetition: 5,
+  distortion: 0.14,
+  scale: 1,
+};
+```
+
+`accentMetalConfig` is used for primary action buttons (hero CTAs, LinkedIn CTA) — a cooler, brighter silver-blue. `defaultMetalConfig` is used for secondary actions (nav "Say hi", "View all work") — a warmer, muted steel. Keeping these two presets consistent gives the UI a coherent material language across all interactive surfaces.
+
+<Tip>
+  To create a warm gold variant, shift `colorBack` toward amber (`"#9a8650"`) and `colorTint` toward cream (`"#fff8e7"`). Increase `distortion` slightly to `0.18` to make the gold flow more liquid.
+</Tip>

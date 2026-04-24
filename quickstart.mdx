@@ -1,81 +1,135 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
-icon: 'rocket'
+title: "Get started with Shreyas Portfolio v2"
+description: "Clone, configure, and run Shreyas Portfolio v2 locally in six steps — from git clone to a live Next.js dev server with hot reload."
 ---
 
-## Get started in three steps
+This guide walks you through getting a fully working local copy of **Shreyas Portfolio v2** running on your machine. The entire process takes under five minutes if you already have Node.js and a Supabase project ready. The only hard requirement is Node.js 18 or later — everything else is installed automatically.
 
-Get your documentation site running locally and make your first customization.
+<Note>
+  Node.js 18 or later is required. The project uses Next.js 16 with React 19, both of which depend on Node.js APIs not available in earlier versions. Run `node --version` to confirm before proceeding.
+</Note>
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Clone the repository">
+    Clone the repository from GitHub and enter the project directory:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    git clone https://github.com/SmartKidzee/new_portfoliov2.git
+    cd new_portfoliov2
+    ```
+  </Step>
 
-### Step 2: Deploy your changes
+  <Step title="Install dependencies">
+    Install all project dependencies using your preferred package manager:
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    <CodeGroup>
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash npm
+    npm install
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash yarn
+    yarn install
+    ```
 
-### Step 3: Go live
+    ```bash pnpm
+    pnpm install
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    </CodeGroup>
+
+    The install pulls in Next.js 16, React 19, GSAP 3, Framer Motion 12, the Supabase JS client, the OpenRouter SDK, HLS.js, Nodemailer, and all other dependencies listed in `package.json`.
+  </Step>
+
+  <Step title="Copy the environment file">
+    Create your local environment file from the provided example:
+
+    ```bash
+    cp .env.example .env.local
+    ```
+
+    `.env.local` is git-ignored by default. Never commit it to version control. Open the file in your editor — the next step covers which values to fill in.
+  </Step>
+
+  <Step title="Configure environment variables">
+    Open `.env.local` and fill in the required variables. At minimum, the Supabase connection values are needed to start the server without runtime errors:
+
+    ```bash .env.local
+    # Required — Supabase project connection
+    NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+    NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+
+    # Required — AI blog assistant
+    OPENROUTER_API_KEY=your-openrouter-api-key-here
+    OPENROUTER_MODEL=meta-llama/llama-3.3-8b-instruct:free
+    OPENROUTER_APP_NAME=Shreyas Portfolio
+
+    # Optional for local dev — contact form and email
+    HUNTER_API_KEY=your-hunter-api-key-here
+    WEB3FORMS_ACCESS_KEY=your-access-key-here
+    SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
+    SMTP_HOST=smtp.your-email-provider.com
+    SMTP_PORT=587
+    SMTP_USER=your-smtp-username
+    SMTP_PASS=your-smtp-password
+    CONTACT_FROM_EMAIL=your-email-here
+    NEXT_PUBLIC_SITE_URL=http://localhost:3000
+    ```
+
+    <Tip>
+      For local development, only `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are strictly required to boot the app and render content. `OPENROUTER_API_KEY` is needed to use the AI blog assistant — without it, the assistant panel will fail silently. SMTP and Web3Forms variables are only needed if you want to test the contact form end-to-end. `SUPABASE_SERVICE_ROLE_KEY` is used for server-side Supabase operations such as admin-level blog mutations and can be omitted during read-only local development.
+    </Tip>
+
+    Find your Supabase URL and anon key in your [Supabase dashboard](https://supabase.com/dashboard) under **Project Settings → API**. For a full description of every variable, see the [environment setup](/environment-setup) page.
+  </Step>
+
+  <Step title="Run the Supabase setup SQL">
+    If you are connecting to a fresh Supabase project, run the schema setup script to create the required tables (blog posts, likes, etc.):
+
+    1. Open your Supabase project in the dashboard.
+    2. Navigate to **SQL Editor**.
+    3. Open `supabase/setup.sql` from the cloned repository.
+    4. Paste the contents into the SQL Editor and click **Run**.
+
+    ```bash
+    # The schema file to run is at:
+    supabase/setup.sql
+    ```
+
+    If you are connecting to an existing Supabase project that already has the schema, skip this step.
+  </Step>
+
+  <Step title="Start the development server">
+    Start the Next.js development server:
+
+    ```bash
+    npm run dev
+    ```
+
+    The server starts at [http://localhost:3000](http://localhost:3000) with hot module replacement enabled. The terminal will show a compilation summary and any warnings on startup.
+
+    To build for production and preview the output locally:
+
+    ```bash
+    npm run build
+    npm run start
+    ```
+  </Step>
+</Steps>
+
+## Available scripts
+
+| Script | Command | Description |
+|---|---|---|
+| Development | `npm run dev` | Start dev server with HMR at localhost:3000 |
+| Build | `npm run build` | Production build with full type-checking |
+| Start | `npm run start` | Serve the production build locally |
+| Lint | `npm run lint` | Run Next.js ESLint rules across the project |
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Once the dev server is running, visit [http://localhost:3000](http://localhost:3000) to see the full portfolio. From here you can:
 
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+- Edit content in `content-data/*.json` to update projects, skills, and timeline entries without touching component code.
+- Modify `lib/site.ts` to change the site name, home page title, and site description used across all metadata.
+- Configure additional environment variables to enable the contact form and AI assistant — see [environment setup](/environment-setup) for the full reference.

@@ -1,0 +1,182 @@
+---
+title: "Skills showcase: interactive radar visualization"
+description: "How the skills section works: 6 categories from skills.json, animated SVG ring progress indicators, category pill navigation, and the detail card layout."
+---
+
+The skills showcase replaces a traditional skill bar grid with an interactive category navigator and animated SVG ring progress indicators. Clicking a category pill switches the detail card and skill grid in place. Clicking an individual skill card updates the large ring and progress value in the detail card. All progress values animate from zero on first viewport entry using Framer Motion's `animate()` with `useReducedMotion` support.
+
+## Skill categories
+
+Six categories are defined in `content-data/skills.json`. Each category has a title, label, description, preview tags, and an ordered list of skills with `defaultProgress` scores (0–100).
+
+<CodeGroup>
+```json content-data/skills.json (structure)
+{
+  "schemaVersion": "3.0.0",
+  "categories": [
+    {
+      "id": "top-tier",
+      "label": "Category 1",
+      "title": "Core Strengths",
+      "emoji": "💥",
+      "description": "The skills I naturally lean on when I need to design, build, and ship a product end to end without losing polish.",
+      "previewTags": ["Product thinking", "Execution", "Shipping loop"],
+      "skills": [
+        { "slug": "full-stack-product-thinking", "label": "Full Stack Product Thinking", "defaultProgress": 87 },
+        { "slug": "frontend-engineering", "label": "Frontend Engineering (React, Next.js)", "defaultProgress": 88 },
+        { "slug": "backend-integration", "label": "Backend Integration (Supabase, Firebase, Postgres, APIs)", "defaultProgress": 85 },
+        { "slug": "ai-product-development", "label": "AI Product Development", "defaultProgress": 89 },
+        { "slug": "prompt-engineering", "label": "Prompt Engineering", "defaultProgress": 91 },
+        { "slug": "api-integration", "label": "API Integration", "defaultProgress": 88 },
+        { "slug": "tool-integration", "label": "Tool Integration", "defaultProgress": 85 }
+      ]
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### All 6 categories at a glance
+
+<CardGroup cols={2}>
+  <Card title="Core Strengths" icon="fire">
+    Full Stack Product Thinking (87%), Frontend Engineering (88%), Backend Integration (85%), AI Product Development (89%), Prompt Engineering (91%), API Integration (88%), Tool Integration (85%)
+  </Card>
+  <Card title="Development Skills" icon="code">
+    Frontend Engineering (88%), Backend Integration (85%), Responsive UI Design (90%), Responsive Web Design (89%), API Integration (88%), Full Stack Product Thinking (87%), MySQL & Postgres (82%), DevOps (74%)
+  </Card>
+  <Card title="AI Skills" icon="robot">
+    AI Product Development (89%), AI-assisted Development (87%), Tool Integration (85%), Generative AI Applications (87%), Prompt Engineering (91%), Vertex AI & Gemini Integration (79%), AI Workflow Design (84%), AI System Design (83%)
+  </Card>
+  <Card title="Programming" icon="terminal">
+    Python (86%), TypeScript (84%), C (77%), C++ DSA (81%)
+  </Card>
+  <Card title="Core CS" icon="brain">
+    Data Structures & Algorithms (84%), DBMS (79%), Computer Networks (74%), Linear Algebra for ML (72%)
+  </Card>
+  <Card title="Tools" icon="wrench">
+    Git & GitHub (88%), Codex (91%), Claude Code (88%), OpenCode (80%), Ollama (76%), Vercel (87%), Firebase (80%), Supabase (86%), Oracle Cloud OCI (69%), Google Stitch (74%), Claude Design (73%)
+  </Card>
+</CardGroup>
+
+## SVG ring progress indicator
+
+Each skill renders a `CircularSkillProgress` component that animates an SVG stroke from `circumference` (fully empty) to the calculated `strokeDashoffset` on viewport entry.
+
+<CodeGroup>
+```tsx components/skills-showcase-section.tsx
+function CircularSkillProgress({ iconKey, progress, delay = 0 }) {
+  const shouldReduceMotion = useReducedMotion();
+  const radius = 26;
+  const stroke = 5;
+  const normalizedRadius = radius - stroke / 2;
+  const circumference = normalizedRadius * 2 * Math.PI;
+  const strokeDashoffset = circumference - (progress / 100) * circumference;
+
+  return (
+    <div className={styles.ringWrap} aria-hidden="true">
+      <svg viewBox={`0 0 ${radius * 2} ${radius * 2}`}>
+        <circle className={styles.ringTrack} cx={radius} cy={radius} r={normalizedRadius} strokeWidth={stroke} />
+        <motion.circle
+          className={styles.ringFill}
+          cx={radius}
+          cy={radius}
+          r={normalizedRadius}
+          strokeWidth={stroke}
+          strokeDasharray={circumference}
+          initial={{ strokeDashoffset: shouldReduceMotion ? strokeDashoffset : circumference }}
+          animate={{ strokeDashoffset }}
+          transition={
+            shouldReduceMotion
+              ? { duration: 0 }
+              : { duration: 1.05, delay, ease: [0.22, 1, 0.36, 1] }
+          }
+        />
+      </svg>
+      <motion.div
+        initial={shouldReduceMotion ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.65, delay: delay + 0.08, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <SkillLogo iconKey={iconKey} />
+      </motion.div>
+    </div>
+  );
+}
+```
+</CodeGroup>
+
+The animated progress counter alongside each ring uses Framer Motion's `animate()` function (not a component) to tween from `0` to the progress value and update a `displayProgress` state variable on each tick, rendering as `{displayProgress}%`.
+
+## Icon map
+
+Icons are sourced from `react-icons` (`fa6` and `si` sub-packages). The `iconMap` object maps string keys from the skill data to the icon component:
+
+<CodeGroup>
+```tsx components/skills-showcase-section.tsx (icon map excerpt)
+const iconMap: Record<string, IconType> = {
+  anthropic: SiAnthropic,
+  brain: FaBrain,
+  c: SiC,
+  cplusplus: SiCplusplus,
+  docker: SiDocker,
+  figma: SiFigma,
+  firebase: SiFirebase,
+  github: SiGithub,
+  openai: SiOpenai,
+  python: SiPython,
+  react: SiReact,
+  supabase: SiSupabase,
+  typescript: SiTypescript,
+  vercel: SiVercel,
+  // ...plus fa6 icons for database, network, workflow, etc.
+};
+```
+</CodeGroup>
+
+Unknown icon keys fall back to `FaCode`.
+
+## Category navigation
+
+The category rail on the left (or top on mobile) renders each category as a `LiquidMetalButton` with `role="tab"` and `aria-selected`. The active category uses a brighter metal shader config; inactive pills use a more muted one.
+
+When the active category changes, `useEffect` resets `activeSkillSlug` to the highest-progress skill in the new category (sorted descending by `progress`).
+
+## How to update your skill set
+
+<Steps>
+  <Step title="Open skills.json">
+    The file is at `content-data/skills.json`. The `schemaVersion` is `"3.0.0"`.
+  </Step>
+  <Step title="Edit or add a skill within a category">
+    Each skill object needs a `slug` (URL-safe, unique within the category), a `label` (display name), and a `defaultProgress` (integer 0–100).
+
+    ```json
+    {
+      "slug": "my-new-skill",
+      "label": "My New Skill",
+      "defaultProgress": 82
+    }
+    ```
+  </Step>
+  <Step title="Add an icon key (optional)">
+    If the skill has a matching brand icon, add an `iconKey` field with one of the keys from `iconMap` in `components/skills-showcase-section.tsx`. If the key is missing or unrecognized, it falls back to `FaCode`.
+  </Step>
+  <Step title="Add a summary (optional)">
+    A `summary` field on the skill object populates the description in the detail card when the skill is selected. Without it, the category description is shown instead.
+  </Step>
+  <Step title="Add a new category (if needed)">
+    Add a new object to the `categories` array with a unique `id`, a `title`, `label`, `description`, `previewTags`, and a `skills` array. The category pill and grid will appear automatically — no component changes required.
+  </Step>
+  <Step title="Deploy">
+    The skill data is imported statically by `lib/skill-radar.ts` which processes `skills.json` into `SkillShowcaseCategory[]` objects. A redeploy (or `next build`) picks up the changes.
+  </Step>
+</Steps>
+
+<Tip>
+  The category's displayed average progress (`category.progress`) is computed by `lib/skill-radar.ts` as the mean of all `defaultProgress` values in the category's `skills` array. You do not need to set it manually.
+</Tip>
+
+<Warning>
+  Slug values must be unique within a category. The active skill is tracked by slug, so duplicate slugs in the same category will cause only the first skill to be selectable.
+</Warning>

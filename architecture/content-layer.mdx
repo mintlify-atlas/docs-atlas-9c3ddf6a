@@ -1,0 +1,424 @@
+---
+title: "Content layer: JSON data and lib loaders"
+description: "How the twelve JSON files in content-data/ are structured and how lib/content.ts, lib/blogs.ts, and lib/skill-radar.ts load them at request time."
+---
+
+Every piece of static copy on the portfolio — headlines, project entries, timeline cards, stats, footer links, and SEO metadata — lives in a JSON file inside `content-data/`. This keeps content editable without touching any component logic. Dynamic data (blog posts, skill progress scores, contact submissions) is fetched from Supabase at request time by the three loader modules in `lib/`.
+
+## The twelve JSON files
+
+<AccordionGroup>
+  <Accordion title="about.json — About Me section">
+    Contains the three bio paragraphs and the profile image configuration (`src`, `alt`, `variant`). The `variant: "tilted-card"` value drives the CSS class applied to the profile image wrapper.
+
+    ```json title="content-data/about.json (content shape)"
+    {
+      "content": {
+        "title": "About Me",
+        "paragraphs": ["..."],
+        "profileMedia": {
+          "src": "/about-me.JPEG",
+          "alt": "Tech",
+          "variant": "tilted-card"
+        }
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="home.json — Hero section">
+    Drives the large headline words, intro sentence, vision statement, portrait image, and the tech-strip ticker beneath the hero.
+
+    ```json title="content-data/home.json (content shape)"
+    {
+      "content": {
+        "headline": ["BUILDING", "THE", "FUTURE"],
+        "intro": "I design and ship AI-first products with strong frontend craft...",
+        "visionStatement": "CODE THAT SPEAKS YOUR VISION",
+        "portrait": {
+          "src": "https://i.ibb.co/B55KFGh2/IMG-1106.jpg",
+          "alt": "Shreyas",
+          "loading": "eager"
+        },
+        "techStrip": [
+          "Responsive Web Design",
+          "API Integration",
+          "AI System Design",
+          "DevOps"
+        ]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="projects.json — Featured work">
+    The most structured file. Each project object carries `id`, `slug`, `name`, `tagline`, `summary`, `description`, `status`, `stack` (split into `primary` and `supporting` arrays), `highlights`, `links` (`live` + `repository`), and `media` (`coverImage` + `screenshots`).
+
+    ```json title="content-data/projects.json (single project)"
+    {
+      "id": "talk2job",
+      "slug": "talk2job",
+      "name": "Talk2Job",
+      "tagline": "AI-powered voice interview practice",
+      "summary": "A voice-first interview simulator that gives instant AI feedback...",
+      "status": "Launched",
+      "featured": true,
+      "stack": {
+        "primary": ["Next.js", "VAPI", "Firebase", "Google Gemini"],
+        "supporting": ["Tailwind CSS", "Vercel"]
+      },
+      "links": {
+        "live": "https://talk2job.vercel.app",
+        "repository": "https://github.com/SmartKidzee/talk2job"
+      },
+      "media": {
+        "coverImage": "https://ebxdddejgcqfxcjfgokn.supabase.co/storage/v1/object/public/site-images/..."
+      }
+    }
+    ```
+
+    The top-level `projectCount` field is kept in sync manually; update it when adding or removing projects.
+  </Accordion>
+
+  <Accordion title="skills.json — Skill categories (static seed)">
+    Provides the category metadata (id, label, title, emoji, description, previewTags) and each skill's slug and `defaultProgress` value. This file acts as the **static fallback** — if Supabase is unavailable, `lib/skill-radar.ts` builds from its own seed data (which mirrors this shape). The interactive radar reads live progress from Supabase at runtime.
+
+    ```json title="content-data/skills.json (category shape)"
+    {
+      "categories": [
+        {
+          "id": "top-tier",
+          "label": "Category 1",
+          "title": "Core Strengths",
+          "emoji": "💥",
+          "description": "The skills I naturally lean on when I need to design, build, and ship...",
+          "previewTags": ["Product thinking", "Execution", "Shipping loop"],
+          "skills": [
+            { "slug": "full-stack-product-thinking", "label": "Full Stack Product Thinking", "defaultProgress": 87 },
+            { "slug": "ai-product-development", "label": "AI Product Development", "defaultProgress": 89 }
+          ]
+        }
+      ]
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="timeline.json — Learning timeline">
+    Eight entries, one per year from 2019 to 2026. Each entry has `year`, `phase`, `belief` (the mindset held at the time), `learned` (the shift that happened), and `change` (the resulting action).
+
+    ```json title="content-data/timeline.json (entry shape)"
+    {
+      "content": {
+        "heading": "Learning Timeline",
+        "description": "A year-by-year view of how curiosity turned into deliberate building...",
+        "entries": [
+          {
+            "year": "2024",
+            "phase": "Execution Mode",
+            "belief": "I need to learn everything first",
+            "learned": "Build, learn, repeat",
+            "change": "Started real projects like Talk2Job"
+          }
+        ]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="stats.json — Impact snapshot counters">
+    Drives the animated number counters section. Each item has `value`, `label`, `suffix` or `prefix`, `caption`, `decimals`, and optionally `useGrouping: false` to suppress the thousands separator.
+
+    ```json title="content-data/stats.json (item shape)"
+    {
+      "content": {
+        "items": [
+          { "value": 3, "label": "Projects Engineered", "suffix": "+", "caption": "Real-world AI & Full Stack Apps", "decimals": 0 },
+          { "value": 9.3, "label": "Current CGPA", "suffix": "+", "caption": "Academic Consistency", "decimals": 1 },
+          { "value": 2028, "label": "CSE @ NIE Mysuru", "prefix": "Class of ", "caption": "AI & ML Focus", "decimals": 0, "useGrouping": false }
+        ]
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="experience.json — Milestone timeline">
+    Structured as a milestone-style timeline rather than a traditional jobs list. Each entry has `role`, `startDate`, `endDate`, `company` (nullable), `link` (nullable), `iconLabel`, and an `achievements` string array.
+  </Accordion>
+
+  <Accordion title="education.json — Education institutions">
+    Three institutions ordered from current to oldest. Each has `institution`, `credential`, `period`, `activities` array, and a `metrics` object with either `cgpa` or `percentage`.
+  </Accordion>
+
+  <Accordion title="contact.json, footer.json, blogs.json">
+    - **contact.json** — section title and any static contact copy used before the form.
+    - **footer.json** — the copyright string and the two legal links (`/terms` and `/privacy`).
+    - **blogs.json** — static fallback metadata for the blog listing page when Supabase data is unavailable.
+  </Accordion>
+
+  <Accordion title="site-metadata.json — SEO and structured data">
+    The single source of truth for title, description, keywords, `canonicalUrl`, Open Graph image references, and the JSON-LD `Person` + `WebSite` structured data blocks. `app/layout.tsx` imports this file directly to build the Next.js `Metadata` export.
+
+    ```json title="content-data/site-metadata.json (content shape)"
+    {
+      "content": {
+        "title": "Shreyas J",
+        "description": "Shreyas J builds AI systems, full-stack products...",
+        "canonicalUrl": "https://shreyas.cloud",
+        "keywords": ["Shreyas", "ai systems", "React", "TypeScript", "..."],
+        "personStructuredData": {
+          "name": "Shreyas J",
+          "jobTitle": "AI Systems & Full-Stack Builder",
+          "imageUrl": "https://shreyas.cloud/hero_image.png",
+          "sameAsLinks": [
+            "https://github.com/SmartKidzee",
+            "https://linkedin.com/in/smartshreyas",
+            "https://twitter.com/kidzeesmart",
+            "https://instagram.com/smartkidzee"
+          ]
+        }
+      }
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## lib/content.ts — the static aggregator
+
+`lib/content.ts` is the single file that imports every JSON content file and assembles the `portfolioContent` object. Any server component or API route that needs static portfolio copy imports from here.
+
+```ts title="lib/content.ts"
+import aboutData from "@/content-data/about.json";
+import contactData from "@/content-data/contact.json";
+import educationData from "@/content-data/education.json";
+import experienceData from "@/content-data/experience.json";
+import footerData from "@/content-data/footer.json";
+import homeData from "@/content-data/home.json";
+import projectsData from "@/content-data/projects.json";
+import siteMetadata from "@/content-data/site-metadata.json";
+import statsData from "@/content-data/stats.json";
+import timelineData from "@/content-data/timeline.json";
+
+type Project = (typeof projectsData.projects)[number];
+
+const safeProjectHref = (project: Project) => {
+  if (project.links.live && !project.links.live.includes("shreyas.cloud")) {
+    return project.links.live;
+  }
+  return project.links.repository ?? "#";
+};
+
+const featuredWorks = projectsData.projects.map((project, index) => ({
+  id: project.id,
+  title: project.name,
+  subtitle: project.tagline,
+  description: project.summary,
+  href: safeProjectHref(project),
+  image: safeMediaSource(project.media.coverImage),
+  accent:
+    index % 2 === 0
+      ? "from-[#132133] via-[#213d5d] to-[#0b111a]"
+      : "from-[#1c1c2f] via-[#2a4d78] to-[#0f1017]",
+  meta: project.stack.primary.slice(0, 4),
+  pillLabel: project.status,
+}));
+
+export const portfolioContent = {
+  metadata: siteMetadata.content,
+  home: homeData.content,
+  about: aboutData.content,
+  contact: contactData.content,
+  education: educationData.content,
+  experience: experienceData.content,
+  footer: footerData.content,
+  stats: statsData.content,
+  timeline: timelineData.content,
+  projects: projectsData.projects as Project[],
+  featuredWorks,
+  roles: [
+    "Student, Content Creator & Builder",
+    "Upcoming Agentic Engineer & Full Stack Developer",
+    "Building AI Systems & Scalable Web Apps",
+  ],
+};
+
+export type PortfolioContent = typeof portfolioContent;
+export type PortfolioProject = Project;
+```
+
+<Note>
+  The `safeMediaSource` helper validates that any media URL is either an absolute `https://` URL or a root-relative `/path`. Any other value is coerced to `null` so broken image URLs never reach the DOM.
+</Note>
+
+## lib/blogs.ts — Supabase blog loader
+
+`lib/blogs.ts` creates a **server-only** Supabase client (no session persistence, no token refresh) and exposes three async functions. All three normalise raw Supabase rows through `normalizeBlogPost` before returning, ensuring the rest of the app always receives a fully-typed `BlogPost`.
+
+<Tabs>
+  <Tab title="TypeScript types">
+    ```ts title="supabase/client.ts — BlogPost interface"
+    export interface BlogPost {
+      id: string;
+      category: string;
+      title: string;
+      content: string;
+      created_at: string;
+      updated_at: string;
+      src?: string | null;
+      isAchievement?: boolean;
+      tags: string[];
+      route: string;
+      video?: string | null;
+    }
+    ```
+  </Tab>
+  <Tab title="getAllBlogs">
+    ```ts title="lib/blogs.ts"
+    export async function getAllBlogs(): Promise<BlogPost[]> {
+      const client = getServerSupabaseClient();
+      if (!client) return [];
+
+      const { data, error } = await client
+        .from("blogs")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error || !data) return [];
+      return data.map((row) => normalizeBlogPost(row as SupabaseBlogRow));
+    }
+    ```
+  </Tab>
+  <Tab title="getLatestBlogs">
+    ```ts title="lib/blogs.ts"
+    export async function getLatestBlogs(limit = 4): Promise<BlogPost[]> {
+      const client = getServerSupabaseClient();
+      if (!client) return [];
+
+      const { data, error } = await client
+        .from("blogs")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(limit);
+
+      if (error || !data) return [];
+      return data.map((row) => normalizeBlogPost(row as SupabaseBlogRow));
+    }
+    ```
+  </Tab>
+  <Tab title="getBlogById">
+    ```ts title="lib/blogs.ts"
+    export async function getBlogById(id: string): Promise<BlogPost | null> {
+      const client = getServerSupabaseClient();
+      if (!client) return null;
+
+      const { data, error } = await client
+        .from("blogs")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
+
+      if (error || !data) return null;
+      return normalizeBlogPost(data as SupabaseBlogRow);
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## lib/skill-radar.ts — skill categories loader
+
+`getSkillShowcaseCategories()` is the public export. It tries to fetch fully-managed skill data from the `portfolio_skill_categories` and `portfolio_skill_progress` tables. If those tables are empty or unreachable, it falls back to fetching just progress overrides from the legacy `portfolio_skill_metrics` table, then merges those into the hardcoded seed data baked into the module.
+
+```ts title="lib/skill-radar.ts — exported types"
+export type SkillShowcaseSkill = {
+  slug: string;
+  label: string;
+  iconKey: string;
+  summary: string;
+  progress: number;   // 0–100, clamped
+  categoryId: string;
+};
+
+export type SkillShowcaseCategory = {
+  id: string;
+  label: string;
+  title: string;
+  emoji: string;
+  description: string;
+  accentFrom: string;
+  accentTo: string;
+  glow: string;
+  progress: number;      // average of all skills in category
+  totalSkills: number;
+  skills: SkillShowcaseSkill[];
+};
+```
+
+The fetch waterfall looks like this:
+
+```text
+getSkillShowcaseCategories()
+  ├── try: portfolio_skill_categories + portfolio_skill_progress (full Supabase data)
+  │         └── success → return typed SkillShowcaseCategory[]
+  ├── fallback: portfolio_skill_metrics (progress overrides only)
+  │         └── merge overrides into seed → return SkillShowcaseCategory[]
+  └── fallback: pure seed data with default progress values
+```
+
+<Tip>
+  Six skill categories are seeded in code: `top-tier`, `development-skills`, `ai-skills`, `programming`, `core-cs`, and `tools`. Progress values default between 72 and 93. Run `supabase/skill-radar.sql` to promote the seed into the database and manage progress from the Supabase dashboard.
+</Tip>
+
+## How to add a new project
+
+<Steps>
+  <Step title="Open projects.json">
+    Open `content-data/projects.json` in your editor. The `projects` array is at the top level.
+  </Step>
+  <Step title="Add a new project object">
+    Copy an existing entry and update every field. The required fields are `id`, `slug`, `name`, `tagline`, `summary`, `status`, `stack.primary` (array), and `links` (at least one of `live` or `repository`).
+
+    ```json
+    {
+      "id": "my-new-project",
+      "slug": "my-new-project",
+      "name": "My New Project",
+      "tagline": "Short punchy tagline",
+      "summary": "One or two sentences describing what it does.",
+      "status": "Building Now",
+      "featured": true,
+      "projectType": "personal",
+      "category": "ai-web-app",
+      "platform": "web",
+      "stack": {
+        "primary": ["Next.js", "Supabase", "TypeScript"],
+        "supporting": ["Tailwind CSS", "Vercel"]
+      },
+      "highlights": ["Key feature one", "Key feature two"],
+      "links": {
+        "live": "https://my-project.vercel.app",
+        "repository": "https://github.com/SmartKidzee/my-project"
+      },
+      "media": {
+        "coverImage": "https://your-supabase-storage-url/cover.png",
+        "screenshots": []
+      }
+    }
+    ```
+  </Step>
+  <Step title="Increment projectCount">
+    Update the top-level `"projectCount"` field in `projects.json` to reflect the new total.
+  </Step>
+  <Step title="Verify the live URL rule">
+    `lib/content.ts` checks `safeProjectHref`: if `links.live` contains `shreyas.cloud`, the card will link to `links.repository` instead. Set `links.live` to an external domain so the card links to the deployed app.
+  </Step>
+  <Step title="Check the media URL">
+    The `safeMediaSource` helper requires the cover image to be an absolute `https://` URL or a root-relative path starting with `/`. A relative path like `images/cover.png` will be coerced to `null` and the card will render without an image.
+  </Step>
+</Steps>
+
+## How to update skills
+
+Edit `content-data/skills.json` to change the static seed (descriptions, preview tags, default progress). To change the **live progress values** shown on the site, update the `progress` column in the `portfolio_skill_progress` table directly in Supabase — no code deployment required.
+
+## How to edit timeline entries
+
+Open `content-data/timeline.json` and modify any entry in the `entries` array. Each entry needs all four fields: `year`, `phase`, `belief`, `learned`, and `change`. The timeline component renders entries in the order they appear in the array.
